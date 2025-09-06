@@ -87,11 +87,31 @@ class DataController extends Controller
         return $db->$name->findOne(['_id' => new ObjectId($id)]);
     }
 
-    public function create(Request $r, string $name, MongoService $mongo)
+    public function create(string $name, Request $r, MongoService $mongo)
     {
-        $db = $mongo->db((string)$r->query('profile'), $r->query('db'));
-        $result = $db->$name->insertOne($r->all());
-        return ['_id' => (string)$result->getInsertedId()];
+        $profileId = $r->query('profile');
+        $dbName    = $r->query('db');
+
+        $payload = $r->json()->all(); // verwacht raw JSON object
+        if (!is_array($payload)) {
+            return response()->json(['error' => 'Body must be a JSON object'], 422);
+        }
+
+        // _id optioneel: maak er één als hij ontbreekt
+        if (!isset($payload['_id'])) {
+            $payload['_id'] = new ObjectId();
+        } else {
+            // laat string _id door, maar als het $oid-achtig is → ObjectId
+            if (is_array($payload['_id']) && isset($payload['_id']['$oid'])) {
+                $payload['_id'] = new ObjectId($payload['_id']['$oid']);
+            }
+        }
+
+        $col = $mongo->db($profileId, $dbName)->selectCollection($name);
+        $col->insertOne($payload);
+
+        // Stuur terug als Extended JSON-ish
+        return response()->json($payload, 201);
     }
 
     public function update(Request $r, string $name, string $id, MongoService $mongo)
@@ -101,10 +121,23 @@ class DataController extends Controller
         return ['ok' => true];
     }
 
-    public function destroy(Request $r, string $name, string $id, MongoService $mongo)
+
+    public function destroy(string $name, string $id, Request $r, MongoService $mongo)
     {
-        $db = $mongo->db((string)$r->query('profile'), $r->query('db'));
-        $db->$name->deleteOne(['_id' => new ObjectId($id)]);
-        return ['ok' => true];
+        $profileId = $r->query('profile');
+        $dbName    = $r->query('db');
+
+        // probeer $id als ObjectId, anders als string
+        $filter = [];
+        try {
+            $filter = ['_id' => new ObjectId($id)];
+        } catch (\Throwable $e) {
+            $filter = ['_id' => $id];
+        }
+
+        $col = $mongo->db($profileId, $dbName)->selectCollection($name);
+        $res = $col->deleteOne($filter);
+
+        return ['deletedCount' => $res->getDeletedCount()];
     }
 }

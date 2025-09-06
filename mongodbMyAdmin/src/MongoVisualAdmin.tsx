@@ -22,6 +22,9 @@ import {
   Plus,
   X,
   Wifi,
+  Wand2,
+  History,
+  ListStart,
 } from "lucide-react";
 import {
   Button,
@@ -35,6 +38,7 @@ import {
   Dropdown,
   Spinner,
   Alert,
+  ButtonGroup,
 } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -137,6 +141,28 @@ async function getDocs(profileId: string, collection: string, db?: string, limit
   return api<MongoDocument[]>(`/collections/${collection}/docs?${params.toString()}`);
 }
 
+async function createDoc(profileId: string, collection: string, db: string | undefined, doc: any) {
+  const params = new URLSearchParams();
+  params.set("profile", profileId);
+  if (db) params.set("db", db);
+
+  return api<MongoDocument>(`/collections/${collection}/docs?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(doc),
+  });
+}
+
+async function deleteDoc(profileId: string, collection: string, db: string | undefined, id: string) {
+  const params = new URLSearchParams();
+  params.set("profile", profileId);
+  if (db) params.set("db", db);
+
+  return api<{ deletedCount: number }>(`/collections/${collection}/docs/${id}?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
 // ============================================================
 // Helpers (Mongo Extended JSON → display-safe)
 // ============================================================
@@ -160,7 +186,7 @@ function normalizeForDisplay(value: any): any {
     if ("$date" in value) {
       const d = (value as any)["$date"];
       if (typeof d === "string" || typeof d === "number") return new Date(d).toISOString();
-      if (d && typeof d === "object" && "$numberLong" in d) return new Date(Number(d.$numberLong)).toISOString();
+      if (d && typeof d === "object" && "$numberLong" in d) return new Date(Number((d as any).$numberLong)).toISOString();
       return String(d);
     }
     if ("$numberDecimal" in value) return (value as any)["$numberDecimal"];
@@ -196,6 +222,39 @@ function safeStringify(obj: any, space = 2) {
     );
   } catch (e) {
     return "// Failed to stringify document\n" + String(e);
+  }
+}
+
+// ============================================================
+// Template helper for “Use previous structure”
+// ============================================================
+function buildTemplateFromDoc(src: any): any {
+  if (src == null) return null;
+  if (Array.isArray(src)) {
+    // maak lege array; als 1e item object is, geef 1 lege shape
+    if (src.length && typeof src[0] === "object") return [buildTemplateFromDoc(src[0])];
+    return [];
+  }
+  if (typeof src !== "object") {
+    if (typeof src === "string") return "";
+    if (typeof src === "number") return 0;
+    if (typeof src === "boolean") return false;
+    return null;
+  }
+  // object
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (k === "_id") continue; // laat _id weg
+    out[k] = buildTemplateFromDoc(v);
+  }
+  return out;
+}
+
+function templateJsonFromDoc(src: any): string {
+  try {
+    return JSON.stringify(buildTemplateFromDoc(src) ?? {}, null, 2);
+  } catch {
+    return "{\n\n}";
   }
 }
 
@@ -262,7 +321,7 @@ function gridNodes(docs: MongoDocument[], collection: string): Node[] {
   const gapY = 140;
   return docs.map((doc, i) => ({
     id: idToString((doc as any)._id) || String(i),
-    type: "doc", // 👈 custom node type
+    type: "doc",
     data: { collection, doc },
     position: { x: (i % 4) * gapX, y: Math.floor(i / 4) * gapY },
     draggable: true,
@@ -489,12 +548,20 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [docDetail, setDocDetail] = useState<MongoDocument | null>(null);
 
-  // nodes/edges
+  // Create modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createJson, setCreateJson] = useState<string>("{\n  \n}");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Template memory
+  const [lastTemplateDoc, setLastTemplateDoc] = useState<any | null>(null);
+
+  // React Flow
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
-
-  // custom node types
   const nodeTypes = useMemo(() => ({ doc: DocNode }), []);
+  const [rf, setRf] = useState<ReactFlowInstance | null>(null);
 
   // ---------- Init: load profiles + restore selected/db from localStorage ----------
   useEffect(() => {
@@ -542,46 +609,58 @@ export default function App() {
       .catch((e) => console.error("[collections error]", e));
   }, [selected, db]);
 
+  // helper to (re)fit canvas nicely and clamp zoom
+  const fitCanvas = useCallback(() => {
+    if (!rf) return;
+    rf.fitView({ padding: 0.2, includeHiddenNodes: false });
+    // clamp extreme zoom-in (e.g. 1 node)
+    const z = rf.getZoom();
+    if (z > 1) rf.zoomTo(1);
+  }, [rf]);
+
   // ---------- Load docs when activeCollection changes (reset canvas first) ----------
   useEffect(() => {
-    setNodes([]); // reset
-    setEdges([]); // reset
+    setNodes([]); setEdges([]);
     if (!activeCollection) return;
 
     if (!selected) {
       const docs = MOCK_DOCS[activeCollection] ?? [];
       setNodes(gridNodes(docs, activeCollection));
+      setLastTemplateDoc(docs[0] ?? null);
+      // allow layout to paint then fit
+      setTimeout(fitCanvas, 0);
       return;
     }
     getDocs(selected._id, activeCollection, db, 100)
-      .then((docs) => setNodes(gridNodes(docs, activeCollection)))
+      .then((docs) => {
+        setNodes(gridNodes(docs, activeCollection));
+        setLastTemplateDoc(docs[0] ?? null);
+        setTimeout(fitCanvas, 0);
+      })
       .catch((e) => console.error("[docs error]", e));
-  }, [selected, db, activeCollection, setNodes, setEdges]);
+  }, [selected, db, activeCollection, setNodes, setEdges, fitCanvas]);
 
   // Switch collection → alleen state veranderen; loading gebeurt in effect
   const handleSelectCollection = useCallback((name: string) => {
     setActiveCollection(name);
   }, []);
 
-  // Open modal robust (werkt voor DB & mock docs)
+  // Open modal robust (werkt voor DB & mock docs) + onthoud template doc
   const openDocFromNode = useCallback((node: Node) => {
     try {
       const maybe = (node as any)?.data;
-      const doc = maybe?.doc ?? maybe; // gridNodes zet { collection, doc }
+      const doc = maybe?.doc ?? maybe;
       if (!doc || typeof doc !== "object") return;
       setDocDetail(doc as MongoDocument);
+      setLastTemplateDoc(doc);
     } catch (err) {
       console.error("[openDocFromNode]", err, node);
     }
   }, []);
 
   // Fallback: single click & double click
-  const onNodeClick = useCallback((_e: any, node: Node) => {
-    openDocFromNode(node);
-  }, [openDocFromNode]);
-  const onNodeDoubleClick = useCallback((_e: any, node: Node) => {
-    openDocFromNode(node);
-  }, [openDocFromNode]);
+  const onNodeClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
+  const onNodeDoubleClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
 
   // connect edges (visual-only)
   const onConnect = useCallback((connection: Connection) => {
@@ -601,6 +680,50 @@ export default function App() {
         .includes(q),
     }));
   }, [nodes, query]);
+
+  // ---------- Create modal handlers ----------
+  async function handleCreateDocument() {
+    if (!selected) { setCreateError("Select a connection first."); return; }
+    if (!activeCollection) { setCreateError("Select a collection first."); return; }
+
+    try {
+      setCreating(true); setCreateError(null);
+      let obj: any;
+      try { obj = JSON.parse(createJson || "{}"); } catch (e: any) { throw new Error("Invalid JSON: " + e.message); }
+      await createDoc(selected._id, activeCollection, db, obj);
+      setCreateOpen(false);
+      const docs = await getDocs(selected._id, activeCollection, db, 100);
+      setNodes(gridNodes(docs, activeCollection));
+      setEdges([]);
+      setLastTemplateDoc(docs[0] ?? null);
+      setTimeout(fitCanvas, 0);
+    } catch (e: any) {
+      setCreateError(e.message || "Failed to create document");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // ---------- Delete from modal ----------
+  async function handleDeleteCurrent() {
+    if (!docDetail) return;
+    if (!selected) { alert("Select a connection first."); return; }
+    if (!activeCollection) { alert("Select a collection first."); return; }
+    if (!confirm("Delete this document? This cannot be undone.")) return;
+
+    try {
+      const idStr = idToString((docDetail as any)._id);
+      await deleteDoc(selected._id, activeCollection, db, idStr);
+      setDocDetail(null);
+      const docs = await getDocs(selected._id, activeCollection, db, 100);
+      setNodes(gridNodes(docs, activeCollection));
+      setEdges([]);
+      setLastTemplateDoc(docs[0] ?? null);
+      setTimeout(fitCanvas, 0);
+    } catch (e: any) {
+      alert(e.message || "Delete failed");
+    }
+  }
 
   return (
     <div className="container-fluid vh-100">
@@ -694,11 +817,21 @@ export default function App() {
                         placeholder="Search documents"
                       />
                     </div>
+
+                    {/* Create new document */}
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setCreateError(null);
+                        setCreateJson("{\n  \n}");
+                        setCreateOpen(true);
+                      }}
+                    >
+                      <Plus size={14} className="me-1" /> New document
+                    </Button>
+
                     <Button variant="outline-secondary" size="sm">
                       <Link2 size={14} className="me-1" /> Create relation
-                    </Button>
-                    <Button size="sm">
-                      <Plus size={14} className="me-1" /> New document
                     </Button>
                     <Button variant="outline-secondary" size="sm">
                       <Settings size={14} className="me-1" /> Settings
@@ -712,7 +845,7 @@ export default function App() {
                   className="border rounded-bottom overflow-hidden"
                 >
                   <ReactFlow
-                    key={`${selected?._id ?? "mock"}:${activeCollection}`} // force remount on switch
+                    key={`${selected?._id ?? "mock"}:${activeCollection}`}
                     nodeTypes={nodeTypes}
                     nodes={filteredNodes}
                     edges={edges}
@@ -721,7 +854,14 @@ export default function App() {
                     onConnect={onConnect}
                     onNodeClick={onNodeClick}
                     onNodeDoubleClick={onNodeDoubleClick}
+                    onInit={(inst) => { setRf(inst); setTimeout(() => {
+                      try { inst.zoomTo(0.8); } catch {}
+                    }, 0); }}
                     fitView
+                    fitViewOptions={{ padding: 0.2, includeHiddenNodes: false }}
+                    defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+                    minZoom={0.2}
+                    maxZoom={1.5}
                   >
                     <MiniMap pannable zoomable />
                     <Controls />
@@ -773,7 +913,7 @@ export default function App() {
                   <Button size="sm" variant="outline-secondary">
                     Export JSON
                   </Button>
-                  <Button size="sm" variant="danger">
+                  <Button size="sm" variant="danger" onClick={handleDeleteCurrent}>
                     Delete
                   </Button>
                 </Card.Body>
@@ -808,7 +948,7 @@ export default function App() {
                     (Future) Inferred schema, field types, indexes.
                   </Tab.Pane>
                   <Tab.Pane eventKey="history" className="text-muted small">
-                    (Future) Document revision history (Change Streams of audit
+                    (Future) Document revision history (Change Streams or audit
                     log).
                   </Tab.Pane>
                   <Tab.Pane eventKey="relations" className="text-muted small">
@@ -829,6 +969,77 @@ export default function App() {
         </Button>
       </Modal>
 
+      {/* Create document modal */}
+      <Modal show={createOpen} onHide={() => setCreateOpen(false)} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>New document in {activeCollection}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {createError && <Alert variant="danger" className="mb-2">{createError}</Alert>}
+
+          {/* Quick template buttons */}
+          <div className="d-flex align-items-center gap-2 mb-2">
+            <span className="text-muted small">Template:</span>
+            <ButtonGroup size="sm">
+              <Button variant="outline-secondary" onClick={() => setCreateJson("{\n  \n}")}>
+                Empty
+              </Button>
+              <Button
+                variant="outline-secondary"
+                onClick={() => setCreateJson(templateJsonFromDoc(lastTemplateDoc))}
+                disabled={!lastTemplateDoc}
+                title={lastTemplateDoc ? "Use last opened document structure" : "Open a document first"}
+              >
+                <History size={14} className="me-1" /> Last opened
+              </Button>
+              <Button
+                variant="outline-secondary"
+                onClick={async () => {
+                  try {
+                    if (!selected) {
+                      // mock mode → pak 1e mock doc
+                      const d = (MOCK_DOCS[activeCollection] ?? [])[0];
+                      setCreateJson(templateJsonFromDoc(d));
+                      return;
+                    }
+                    const docs = await getDocs(selected._id, activeCollection, db, 1);
+                    setCreateJson(templateJsonFromDoc(docs[0]));
+                  } catch {
+                    setCreateJson("{\n  \n}");
+                  }
+                }}
+              >
+                <ListStart size={14} className="me-1" /> First in list
+              </Button>
+            </ButtonGroup>
+            <span className="ms-2 text-muted small">
+              <Wand2 size={14} className="me-1" />
+              fills keys, clears values, omits <code>_id</code>
+            </span>
+          </div>
+
+          <Form.Group>
+            <Form.Label>JSON</Form.Label>
+            <Form.Control
+              as="textarea"
+              rows={14}
+              value={createJson}
+              onChange={(e) => setCreateJson(e.target.value)}
+              spellCheck={false}
+            />
+            <Form.Text className="text-muted">
+              Tip: laat <code>_id</code> weg om automatisch een ObjectId te krijgen.
+            </Form.Text>
+          </Form.Group>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="light" onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button onClick={handleCreateDocument} disabled={creating}>
+            {creating ? "Creating..." : "Create"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       {/* Connection wizard */}
       <ConnectionWizard
         show={wizardOpen}
@@ -836,7 +1047,7 @@ export default function App() {
         onConnected={(p) => {
           setWizardOpen(false);
           setSelected(p);
-          if (p.defaultDatabase) setDb(p.defaultDatabase); // auto DB invullen
+          if (p.defaultDatabase) setDb(p.defaultDatabase);
         }}
       />
     </div>
