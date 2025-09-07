@@ -3,7 +3,6 @@ import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  addEdge,
   MarkerType,
   Position,
   useNodesState,
@@ -25,6 +24,8 @@ import {
   Wand2,
   History,
   ListStart,
+  Link as LinkIcon,
+  Unlink,
 } from "lucide-react";
 import {
   Button,
@@ -39,6 +40,8 @@ import {
   Spinner,
   Alert,
   ButtonGroup,
+  ToggleButton,
+  Badge,
 } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -55,6 +58,13 @@ type ConnectionProfile = {
   name: string;
   engine: "driver" | "data_api";
   defaultDatabase?: string;
+};
+
+// Relaties
+type Relation = {
+  sourceId: string;   // "collection:docId"
+  targetId: string;   // "collection:docId"
+  viaField?: string;  // optioneel: userId, authorId, ...
 };
 
 // ============================================================
@@ -96,7 +106,7 @@ const MOCK_DOCS: Record<string, MongoDocument[]> = {
 };
 
 // ============================================================
-// API Client (Laravel endpoints). Set VITE_API_URL in your frontend .env
+/* API Client (Laravel endpoints). Set VITE_API_URL in your frontend .env */
 // ============================================================
 const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
@@ -140,7 +150,6 @@ async function getDocs(profileId: string, collection: string, db?: string, limit
   params.set("limit", String(limit));
   return api<MongoDocument[]>(`/collections/${collection}/docs?${params.toString()}`);
 }
-
 async function createDoc(profileId: string, collection: string, db: string | undefined, doc: any) {
   const params = new URLSearchParams();
   params.set("profile", profileId);
@@ -152,7 +161,6 @@ async function createDoc(profileId: string, collection: string, db: string | und
     body: JSON.stringify(doc),
   });
 }
-
 async function deleteDoc(profileId: string, collection: string, db: string | undefined, id: string) {
   const params = new URLSearchParams();
   params.set("profile", profileId);
@@ -231,7 +239,6 @@ function safeStringify(obj: any, space = 2) {
 function buildTemplateFromDoc(src: any): any {
   if (src == null) return null;
   if (Array.isArray(src)) {
-    // maak lege array; als 1e item object is, geef 1 lege shape
     if (src.length && typeof src[0] === "object") return [buildTemplateFromDoc(src[0])];
     return [];
   }
@@ -241,15 +248,13 @@ function buildTemplateFromDoc(src: any): any {
     if (typeof src === "boolean") return false;
     return null;
   }
-  // object
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(src)) {
-    if (k === "_id") continue; // laat _id weg
+    if (k === "_id") continue;
     out[k] = buildTemplateFromDoc(v);
   }
   return out;
 }
-
 function templateJsonFromDoc(src: any): string {
   try {
     return JSON.stringify(buildTemplateFromDoc(src) ?? {}, null, 2);
@@ -259,7 +264,69 @@ function templateJsonFromDoc(src: any): string {
 }
 
 // ============================================================
-// Custom Node for documents (no [Object Object])
+// Relations: storage + helpers
+// ============================================================
+const REL_KEY = "mv_relations:v1"; // globale store (collection-overschrijdend)
+
+function loadAllRelations(): Relation[] {
+  try {
+    const raw = localStorage.getItem(REL_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function saveAllRelations(rels: Relation[]) {
+  localStorage.setItem(REL_KEY, JSON.stringify(rels));
+}
+
+function buildEdgesFromRelations(nodes: Node[], rels: Relation[]): Edge[] {
+  const ids = new Set(nodes.map((n) => n.id));
+  return rels
+    .filter((r) => ids.has(r.sourceId) && ids.has(r.targetId))
+    .map((r) => ({
+      id: `e:${r.sourceId}->${r.targetId}`,
+      source: r.sourceId,
+      target: r.targetId,
+      label: r.viaField ?? "",
+      markerEnd: { type: MarkerType.ArrowClosed },
+      style: { strokeWidth: 1.5 },
+      labelBgBorderRadius: 6,
+      labelBgPadding: [2, 4] as any,
+      labelBgStyle: { fill: "#fff" },
+      animated: false,
+    }));
+}
+
+// heuristiek: probeer viaField af te leiden
+function guessViaField(sourceDoc: any, targetDoc: any, srcCol: string, tgtCol: string): string | undefined {
+  const srcId = idToString(sourceDoc?._id);
+  const tgtId = idToString(targetDoc?._id);
+
+  // 1) direct value match in source → targetId
+  for (const [k, v] of Object.entries(sourceDoc || {})) {
+    if (k === "_id") continue;
+    if (idToString(v) === tgtId) return k;
+  }
+  // 2) direct value match in target → sourceId (reverse)
+  for (const [k, v] of Object.entries(targetDoc || {})) {
+    if (k === "_id") continue;
+    if (idToString(v) === srcId) return k;
+  }
+  // 3) naam-heuristiek (userId, usersId, productId, etc.)
+  const candidates = [
+    `${tgtCol}Id`,
+    `${tgtCol.slice(0, -1)}Id`, // naive singular
+    `ref${tgtCol[0].toUpperCase()}${tgtCol.slice(1)}Id`,
+  ];
+  for (const c of candidates) {
+    if (c in (sourceDoc || {})) return c;
+  }
+  return undefined;
+}
+
+// ============================================================
+// Custom Node (vertical UI)
 // ============================================================
 function pickTitle(doc: any) {
   return doc?.name ?? doc?.title ?? doc?.email ?? doc?.sku ?? idToString(doc?._id) ?? "document";
@@ -273,11 +340,13 @@ function shortVal(v: any) {
   if (typeof val === "object") return "{…}";
   return String(val);
 }
-
 function DocNode({ data }: any) {
   const doc = data.doc || {};
   const displayDoc = normalizeForDisplay(doc);
-  const fields = Object.entries(displayDoc).filter(([k]) => k !== "_id").slice(0, 3);
+  const fields = Object.entries(displayDoc)
+    .filter(([k]) => k !== "_id")
+    .slice(0, 6);
+
   return (
     <div
       style={{
@@ -285,28 +354,39 @@ function DocNode({ data }: any) {
         borderRadius: 12,
         padding: 12,
         boxShadow: "0 8px 18px -10px rgba(0,0,0,.25)",
-        minWidth: 220,
+        minWidth: 240,
         cursor: "pointer",
+        marginBottom: 70,
       }}
     >
-      <div style={{ fontWeight: 600, marginBottom: 6 }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
         {data.collection}: {pickTitle(doc)}
       </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {fields.map(([k, v]) => (
-          <span
+          <div
             key={k}
             style={{
               fontSize: 12,
-              background: "#f3f4f6",
+              background: "#f8fafc",
+              border: "1px solid #eef2f7",
               borderRadius: 8,
-              padding: "2px 8px",
+              padding: "6px 8px",
+              lineHeight: 1.3,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
+            title={`${k}: ${shortVal(v)}`}
           >
-            {k}: {shortVal(v)}
-          </span>
+            <strong style={{ opacity: 0.75 }}>{k}</strong>
+            <span style={{ opacity: 0.5 }}> : </span>
+            <span>{shortVal(v)}</span>
+          </div>
         ))}
       </div>
+
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
     </div>
@@ -314,20 +394,41 @@ function DocNode({ data }: any) {
 }
 
 // ============================================================
-// Helpers
+// Masonry helpers (voorkomt overlap door kolom-hoogtes)
 // ============================================================
-function gridNodes(docs: MongoDocument[], collection: string): Node[] {
-  const gapX = 260;
-  const gapY = 140;
-  return docs.map((doc, i) => ({
-    id: idToString((doc as any)._id) || String(i),
-    type: "doc",
-    data: { collection, doc },
-    position: { x: (i % 4) * gapX, y: Math.floor(i / 4) * gapY },
-    draggable: true,
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
-  }));
+function estimateNodeHeight(doc: any): number {
+  const base = 64;
+  const lines = Math.min(6, Math.max(0, Object.keys(doc || {}).filter((k) => k !== "_id").length));
+  const perLine = 28;
+  return base + lines * perLine;
+}
+function masonryNodes(docs: MongoDocument[], collection: string, cols = 4): Node[] {
+  const gapX = 280;
+  const gapY = 24;
+  const colHeights = new Array(cols).fill(0);
+  const nodes: Node[] = [];
+
+  docs.forEach((doc, i) => {
+    const h = estimateNodeHeight(doc);
+    const col = colHeights.indexOf(Math.min(...colHeights));
+    const x = col * gapX;
+    const y = colHeights[col];
+    const raw = idToString(doc?._id) || String(i);
+
+    nodes.push({
+      id: `${collection}:${raw}`,
+      type: "doc",
+      data: { collection, doc, _id: raw },
+      position: { x, y },
+      draggable: true,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    });
+
+    colHeights[col] += h + gapY;
+  });
+
+  return nodes;
 }
 
 // ============================================================
@@ -378,8 +479,8 @@ function ConnectionWizard({
         uri,
         defaultDatabase: defaultDb || undefined,
       });
-      setCreated(prof);
-      setStep(3);
+        setCreated(prof);
+        setStep(3);
     } catch (e: any) {
       setError(e.message || "Failed to save");
     } finally {
@@ -395,10 +496,7 @@ function ConnectionWizard({
       const res = await testConnection(created._id);
       if (res.ok) onConnected(created);
     } catch (e: any) {
-      setError(
-        e.message ||
-          "Connection failed. Check URI / Atlas IP allowlist / credentials."
-      );
+      setError(e.message || "Connection failed. Check URI / Atlas IP allowlist / credentials.");
     } finally {
       setTesting(false);
     }
@@ -418,16 +516,10 @@ function ConnectionWizard({
           <div>
             <h6 className="mb-3">Choose Source</h6>
             <div className="d-grid gap-2">
-              <Button
-                variant={engine === "driver" ? "primary" : "outline-secondary"}
-                onClick={() => setEngine("driver")}
-              >
+              <Button variant={engine === "driver" ? "primary" : "outline-secondary"} onClick={() => setEngine("driver")}>
                 MongoDB Driver (Local or Atlas)
               </Button>
-              <Button
-                variant={engine === "data_api" ? "primary" : "outline-secondary"}
-                onClick={() => setEngine("data_api")}
-              >
+              <Button variant={engine === "data_api" ? "primary" : "outline-secondary"} onClick={() => setEngine("data_api")}>
                 Atlas Data API (HTTP)
               </Button>
             </div>
@@ -440,30 +532,18 @@ function ConnectionWizard({
               <Col md={6}>
                 <Form.Group>
                   <Form.Label>Name</Form.Label>
-                  <Form.Control
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. My Atlas Prod"
-                  />
+                  <Form.Control value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. My Atlas Prod" />
                 </Form.Group>
               </Col>
               <Col md={6}>
                 <Form.Group>
                   <Form.Label>Default Database</Form.Label>
-                  <Form.Control
-                    value={defaultDb}
-                    onChange={(e) => setDefaultDb(e.target.value)}
-                    placeholder="e.g. appdb"
-                  />
+                  <Form.Control value={defaultDb} onChange={(e) => setDefaultDb(e.target.value)} placeholder="e.g. appdb" />
                 </Form.Group>
               </Col>
               <Col xs={12}>
                 <Form.Group>
-                  <Form.Label>
-                    {engine === "driver"
-                      ? "Mongo URI (mongodb:// or mongodb+srv://)"
-                      : "Atlas Data API Endpoint"}
-                  </Form.Label>
+                  <Form.Label>{engine === "driver" ? "Mongo URI (mongodb:// or mongodb+srv://)" : "Atlas Data API Endpoint"}</Form.Label>
                   <Form.Control
                     as="textarea"
                     rows={3}
@@ -475,9 +555,7 @@ function ConnectionWizard({
                         : "https://data.mongodb-api.com/app/.../endpoint/data/v1/action/find"
                     }
                   />
-                  <Form.Text className="text-muted">
-                    Credentials are stored encrypted on the server.
-                  </Form.Text>
+                  <Form.Text className="text-muted">Credentials are stored encrypted on the server.</Form.Text>
                 </Form.Group>
               </Col>
             </Row>
@@ -486,53 +564,29 @@ function ConnectionWizard({
         {step === 3 && (
           <div>
             <h6 className="mb-3">Test Connection</h6>
-            <p className="text-muted">
-              We saved your profile. Now test the connection to make sure it
-              works.
-            </p>
+            <p className="text-muted">We saved your profile. Now test the connection to make sure it works.</p>
             <Button onClick={handleTest} disabled={testing}>
-              {testing ? (
-                <>
-                  <Spinner size="sm" className="me-2" />
-                  Testing...
-                </>
-              ) : (
-                "Run Test"
-              )}
+              {testing ? (<><Spinner size="sm" className="me-2" />Testing...</>) : "Run Test"}
             </Button>
           </div>
         )}
       </Modal.Body>
       <Modal.Footer>
-        <div className="me-auto small text-muted">
-          Engine: <code>{engine}</code>
-        </div>
-        {step > 1 && (
-          <Button
-            variant="light"
-            onClick={() => setStep((s) => (s > 1 ? ((s - 1) as any) : s))}
-          >
-            Back
-          </Button>
-        )}
+        <div className="me-auto small text-muted">Engine: <code>{engine}</code></div>
+        {step > 1 && <Button variant="light" onClick={() => setStep((s) => (s > 1 ? ((s - 1) as any) : s))}>Back</Button>}
         {step < 3 && (
-          <Button
-            onClick={() => (step === 1 ? setStep(2) : handleSave())}
-            disabled={(step === 2 && !uri) || saving}
-          >
+          <Button onClick={() => (step === 1 ? setStep(2) : handleSave())} disabled={(step === 2 && !uri) || saving}>
             {step === 1 ? "Continue" : saving ? <>Saving...</> : "Save Profile"}
           </Button>
         )}
-        <Button variant="outline-secondary" onClick={onClose}>
-          Close
-        </Button>
+        <Button variant="outline-secondary" onClick={onClose}>Close</Button>
       </Modal.Footer>
     </Modal>
   );
 }
 
 // ============================================================
-// Main App with Connection Switcher + Canvas
+// Main App with Connection Switcher + Canvas (+ Relations)
 // ============================================================
 export default function App() {
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
@@ -542,9 +596,7 @@ export default function App() {
 
   // data
   const [collections, setCollections] = useState<Collection[]>(MOCK_COLLECTIONS);
-  const [activeCollection, setActiveCollection] = useState<string>(
-    MOCK_COLLECTIONS[0]?.name ?? ""
-  );
+  const [activeCollection, setActiveCollection] = useState<string>(MOCK_COLLECTIONS[0]?.name ?? "");
   const [query, setQuery] = useState("");
   const [docDetail, setDocDetail] = useState<MongoDocument | null>(null);
 
@@ -561,7 +613,10 @@ export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
   const nodeTypes = useMemo(() => ({ doc: DocNode }), []);
-  const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+
+  // Relations
+  const [relations, setRelations] = useState<Relation[]>([]);
+  const [relationMode, setRelationMode] = useState<boolean>(false);
 
   // ---------- Init: load profiles + restore selected/db from localStorage ----------
   useEffect(() => {
@@ -609,43 +664,101 @@ export default function App() {
       .catch((e) => console.error("[collections error]", e));
   }, [selected, db]);
 
-  // helper to (re)fit canvas nicely and clamp zoom
-  const fitCanvas = useCallback(() => {
-    if (!rf) return;
-    rf.fitView({ padding: 0.2, includeHiddenNodes: false });
-    // clamp extreme zoom-in (e.g. 1 node)
-    const z = rf.getZoom();
-    if (z > 1) rf.zoomTo(1);
-  }, [rf]);
-
   // ---------- Load docs when activeCollection changes (reset canvas first) ----------
   useEffect(() => {
     setNodes([]); setEdges([]);
     if (!activeCollection) return;
 
+    const applyDocs = (docs: MongoDocument[]) => {
+      const nodesNew = masonryNodes(docs, activeCollection, 4);  // 👈 masonry i.p.v. grid
+      setNodes(nodesNew);
+      setLastTemplateDoc(docs[0] ?? null);
+      // edges worden hieronder uit relaties opgebouwd
+      const allRels = loadAllRelations();
+      setRelations(allRels);
+      setEdges(buildEdgesFromRelations(nodesNew, allRels));
+    };
+
     if (!selected) {
       const docs = MOCK_DOCS[activeCollection] ?? [];
-      setNodes(gridNodes(docs, activeCollection));
-      setLastTemplateDoc(docs[0] ?? null);
-      // allow layout to paint then fit
-      setTimeout(fitCanvas, 0);
+      applyDocs(docs);
       return;
     }
     getDocs(selected._id, activeCollection, db, 100)
-      .then((docs) => {
-        setNodes(gridNodes(docs, activeCollection));
-        setLastTemplateDoc(docs[0] ?? null);
-        setTimeout(fitCanvas, 0);
-      })
+      .then(applyDocs)
       .catch((e) => console.error("[docs error]", e));
-  }, [selected, db, activeCollection, setNodes, setEdges, fitCanvas]);
+  }, [selected, db, activeCollection, setNodes, setEdges]);
 
-  // Switch collection → alleen state veranderen; loading gebeurt in effect
-  const handleSelectCollection = useCallback((name: string) => {
-    setActiveCollection(name);
-  }, []);
+  // ---------- Search filter (client-side) ----------
+  const filteredNodes = useMemo(() => {
+    if (!query.trim()) return nodes;
+    const q = query.toLowerCase();
+    return nodes.map((n) => ({
+      ...n,
+      hidden: !JSON.stringify((n.data as any).doc ?? (n.data as any))
+        .toLowerCase()
+        .includes(q),
+    }));
+  }, [nodes, query]);
 
-  // Open modal robust (werkt voor DB & mock docs) + onthoud template doc
+  // ---------- Relation builders ----------
+  const nodeMap = useMemo(() => {
+    const m = new Map<string, Node>();
+    nodes.forEach((n) => m.set(n.id, n));
+    return m;
+  }, [nodes]);
+
+  const addRelation = useCallback((r: Relation) => {
+    setRelations((prev) => {
+      // dedup
+      if (prev.some((x) => x.sourceId === r.sourceId && x.targetId === r.targetId)) return prev;
+      const next = [...prev, r];
+      saveAllRelations(next);
+      // edges opnieuw
+      setEdges(buildEdgesFromRelations(nodes, next));
+      return next;
+    });
+  }, [nodes, setEdges]);
+
+  const removeRelation = useCallback((sourceId: string, targetId: string) => {
+    setRelations((prev) => {
+      const next = prev.filter((r) => !(r.sourceId === sourceId && r.targetId === targetId));
+      saveAllRelations(next);
+      setEdges(buildEdgesFromRelations(nodes, next));
+      return next;
+    });
+  }, [nodes, setEdges]);
+
+  // ---------- React Flow handlers ----------
+  const onConnect = useCallback((connection: Connection) => {
+    // Alleen als Relation Mode aan staat
+    if (!relationMode) return;
+
+    const sourceId = connection.source!;
+    const targetId = connection.target!;
+    const sourceNode = nodeMap.get(sourceId);
+    const targetNode = nodeMap.get(targetId);
+
+    let viaField: string | undefined;
+    if (sourceNode && targetNode) {
+      const sCol = (sourceNode.data as any).collection;
+      const tCol = (targetNode.data as any).collection;
+      const sDoc = (sourceNode.data as any).doc;
+      const tDoc = (targetNode.data as any).doc;
+      viaField = guessViaField(sDoc, tDoc, sCol, tCol);
+    }
+
+    addRelation({ sourceId, targetId, viaField });
+  }, [relationMode, nodeMap, addRelation]);
+
+  const onEdgeClick = useCallback((_e: any, edge: Edge) => {
+    const [sourceId, targetId] = [edge.source, edge.target];
+    if (confirm("Delete this relation?")) {
+      removeRelation(sourceId, targetId);
+    }
+  }, [removeRelation]);
+
+  // ---------- Open doc modal ----------
   const openDocFromNode = useCallback((node: Node) => {
     try {
       const maybe = (node as any)?.data;
@@ -657,29 +770,8 @@ export default function App() {
       console.error("[openDocFromNode]", err, node);
     }
   }, []);
-
-  // Fallback: single click & double click
   const onNodeClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
   const onNodeDoubleClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
-
-  // connect edges (visual-only)
-  const onConnect = useCallback((connection: Connection) => {
-    setEdges((eds) =>
-      addEdge({ ...connection, markerEnd: { type: MarkerType.ArrowClosed } }, eds)
-    );
-  }, []);
-
-  // search filter (client-side)
-  const filteredNodes = useMemo(() => {
-    if (!query.trim()) return nodes;
-    const q = query.toLowerCase();
-    return nodes.map((n) => ({
-      ...n,
-      hidden: !JSON.stringify((n.data as any).doc ?? (n.data as any))
-        .toLowerCase()
-        .includes(q),
-    }));
-  }, [nodes, query]);
 
   // ---------- Create modal handlers ----------
   async function handleCreateDocument() {
@@ -693,10 +785,10 @@ export default function App() {
       await createDoc(selected._id, activeCollection, db, obj);
       setCreateOpen(false);
       const docs = await getDocs(selected._id, activeCollection, db, 100);
-      setNodes(gridNodes(docs, activeCollection));
-      setEdges([]);
+      const newNodes = masonryNodes(docs, activeCollection, 4);
+      setNodes(newNodes);
+      setEdges(buildEdgesFromRelations(newNodes, relations));
       setLastTemplateDoc(docs[0] ?? null);
-      setTimeout(fitCanvas, 0);
     } catch (e: any) {
       setCreateError(e.message || "Failed to create document");
     } finally {
@@ -716,10 +808,11 @@ export default function App() {
       await deleteDoc(selected._id, activeCollection, db, idStr);
       setDocDetail(null);
       const docs = await getDocs(selected._id, activeCollection, db, 100);
-      setNodes(gridNodes(docs, activeCollection));
-      setEdges([]);
+      const newNodes = masonryNodes(docs, activeCollection, 4);
+      setNodes(newNodes);
+      // filter relaties die deze node gebruiken (optioneel: nu laten staan; edge verdwijnt toch omdat node ontbreekt)
+      setEdges(buildEdgesFromRelations(newNodes, relations));
       setLastTemplateDoc(docs[0] ?? null);
-      setTimeout(fitCanvas, 0);
     } catch (e: any) {
       alert(e.message || "Delete failed");
     }
@@ -741,7 +834,7 @@ export default function App() {
                 key={c.name}
                 variant={activeCollection === c.name ? "primary" : "light"}
                 className="w-100 d-flex justify-content-between align-items-center mb-2 text-start"
-                onClick={() => handleSelectCollection(c.name)}
+                onClick={() => setActiveCollection(c.name)}
               >
                 <span className="text-truncate">{c.name}</span>
                 <small className="opacity-75">{c.count}</small>
@@ -760,19 +853,14 @@ export default function App() {
             <Card className="shadow-sm">
               <Card.Header className="py-2">
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                  <Card.Title
-                    as="h6"
-                    className="mb-0 d-flex align-items-center gap-2"
-                  >
+                  <Card.Title as="h6" className="mb-0 d-flex align-items-center gap-2">
                     <ChevronRight size={18} /> {activeCollection}
+                    {relationMode && <Badge bg="info" className="ms-2">Relation mode</Badge>}
                   </Card.Title>
                   <div className="d-flex align-items-center gap-2">
                     {/* Connection switcher */}
                     <Dropdown>
-                      <Dropdown.Toggle
-                        size="sm"
-                        variant={selected ? "success" : "outline-secondary"}
-                      >
+                      <Dropdown.Toggle size="sm" variant={selected ? "success" : "outline-secondary"}>
                         {selected ? selected.name : "No connection"}
                       </Dropdown.Toggle>
                       <Dropdown.Menu>
@@ -804,11 +892,7 @@ export default function App() {
                     />
 
                     <div className="position-relative">
-                      <Search
-                        size={16}
-                        className="position-absolute"
-                        style={{ left: 8, top: 8, opacity: 0.6 }}
-                      />
+                      <Search size={16} className="position-absolute" style={{ left: 8, top: 8, opacity: 0.6 }} />
                       <Form.Control
                         style={{ paddingLeft: 28, width: 220 }}
                         size="sm"
@@ -830,9 +914,21 @@ export default function App() {
                       <Plus size={14} className="me-1" /> New document
                     </Button>
 
-                    <Button variant="outline-secondary" size="sm">
-                      <Link2 size={14} className="me-1" /> Create relation
-                    </Button>
+                    {/* Relation mode toggle */}
+                    <ToggleButton
+                      id="relation-mode"
+                      type="checkbox"
+                      variant={relationMode ? "primary" : "outline-secondary"}
+                      size="sm"
+                      value="1"
+                      checked={relationMode}
+                      onChange={(e) => setRelationMode(e.currentTarget.checked)}
+                      title="Draw an edge between two docs to create a relation"
+                    >
+                      {relationMode ? <Unlink size={14} className="me-1" /> : <LinkIcon size={14} className="me-1" />}
+                      {relationMode ? "Stop relating" : "Create relation"}
+                    </ToggleButton>
+
                     <Button variant="outline-secondary" size="sm">
                       <Settings size={14} className="me-1" /> Settings
                     </Button>
@@ -840,23 +936,19 @@ export default function App() {
                 </div>
               </Card.Header>
               <Card.Body className="p-0">
-                <div
-                  style={{ height: "72vh" }}
-                  className="border rounded-bottom overflow-hidden"
-                >
+                <div style={{ height: "72vh" }} className="border rounded-bottom overflow-hidden">
                   <ReactFlow
                     key={`${selected?._id ?? "mock"}:${activeCollection}`}
                     nodeTypes={nodeTypes}
                     nodes={filteredNodes}
                     edges={edges}
                     onNodesChange={onNodesChange}
+                    // edges worden door relaties bestuurd, we luisteren alleen voor clicks
                     onEdgesChange={onEdgesChange}
+                    onEdgeClick={onEdgeClick}
                     onConnect={onConnect}
                     onNodeClick={onNodeClick}
                     onNodeDoubleClick={onNodeDoubleClick}
-                    onInit={(inst) => { setRf(inst); setTimeout(() => {
-                      try { inst.zoomTo(0.8); } catch {}
-                    }, 0); }}
                     fitView
                     fitViewOptions={{ padding: 0.2, includeHiddenNodes: false }}
                     defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
@@ -935,36 +1027,25 @@ export default function App() {
                     <Nav.Link eventKey="relations">Relations</Nav.Link>
                   </Nav.Item>
                 </Nav>
-                <Tab.Content
-                  className="border border-top-0 rounded-bottom p-3"
-                  style={{ height: 360, overflow: "auto" }}
-                >
+                <Tab.Content className="border border-top-0 rounded-bottom p-3" style={{ height: 360, overflow: "auto" }}>
                   <Tab.Pane eventKey="json">
-                    <pre className="small mb-0">
-                      {safeStringify(docDetail, 2)}
-                    </pre>
+                    <pre className="small mb-0">{safeStringify(docDetail, 2)}</pre>
                   </Tab.Pane>
                   <Tab.Pane eventKey="schema" className="text-muted small">
                     (Future) Inferred schema, field types, indexes.
                   </Tab.Pane>
                   <Tab.Pane eventKey="history" className="text-muted small">
-                    (Future) Document revision history (Change Streams or audit
-                    log).
+                    (Future) Document revision history (Change Streams or audit log).
                   </Tab.Pane>
                   <Tab.Pane eventKey="relations" className="text-muted small">
-                    (Future) Related documents based on edges drawn on the
-                    canvas.
+                    (Future) Related documents based on edges drawn on the canvas.
                   </Tab.Pane>
                 </Tab.Content>
               </Tab.Container>
             </Col>
           </Row>
         </Modal.Body>
-        <Button
-          variant="light"
-          className="position-absolute top-0 end-0 m-2"
-          onClick={() => setDocDetail(null)}
-        >
+        <Button variant="light" className="position-absolute top-0 end-0 m-2" onClick={() => setDocDetail(null)}>
           <X size={16} />
         </Button>
       </Modal>
@@ -997,7 +1078,6 @@ export default function App() {
                 onClick={async () => {
                   try {
                     if (!selected) {
-                      // mock mode → pak 1e mock doc
                       const d = (MOCK_DOCS[activeCollection] ?? [])[0];
                       setCreateJson(templateJsonFromDoc(d));
                       return;
