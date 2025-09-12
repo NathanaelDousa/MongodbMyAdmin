@@ -731,46 +731,10 @@ export default function App() {
     return out;
   }, []);
 
-  // === NIEUW: maak "stub" nodes voor gerelateerde docs uit andere collections ===
-  const ensureRelationCounterparts = useCallback((baseNodes: Node[], rels: Relation[]) => {
-    const idSet = new Set(baseNodes.map((n) => n.id));
-    if (!rels.length) return baseNodes;
-
-    const maxX = baseNodes.length ? Math.max(...baseNodes.map((n) => n.position.x)) : 0;
-    const stubX = maxX + 320;           // kolom rechts
-    let yCursor = 0;                    // simpele verticale stapeling
-    const yStep = 200;
-
-    const stubs: Node[] = [];
-    function ensure(id: string) {
-      if (idSet.has(id)) return;
-      idSet.add(id);
-      const [col, rawId] = id.includes(":") ? [id.split(":")[0], id.split(":").slice(1).join(":")] : [activeCollection, id];
-      stubs.push({
-        id,
-        type: "doc",
-        data: {
-          collection: col,
-          _id: rawId,
-          // minimale "doc" info zodat DocNode iets kan tonen
-          doc: { _id: rawId, _stub: true, ref: `${col}:${rawId}` },
-        },
-        position: { x: stubX, y: yCursor },
-        draggable: false,
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-      });
-      yCursor += yStep;
-    }
-
-    // voeg ontbrekende eindpunten toe
-    for (const r of rels) {
-      ensure(r.sourceId);
-      ensure(r.targetId);
-    }
-
-    return stubs.length ? [...baseNodes, ...stubs] : baseNodes;
-  }, [activeCollection]);
+  // === GEEN stubs meer: laat nodes ongemoeid ===
+  const ensureRelationCounterparts = useCallback((baseNodes: Node[], _rels: Relation[]) => {
+    return baseNodes;
+  }, []);
 
   // ---------- helpers voor relation persist ----------
   const splitNodeId = useCallback((nodeId: string) => {
@@ -785,9 +749,9 @@ export default function App() {
       const docs = MOCK_DOCS[activeCollection] ?? [];
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
-      const withStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, relations));
+      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withNoStubs);
+      setEdges(buildEdgesFromRelations(withNoStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
       setLayoutTick((t) => t + 1);
       return;
@@ -795,9 +759,9 @@ export default function App() {
     const docs = await getDocs(selected._id, activeCollection, db, 100);
     const nodesNew = masonryNodes(docs, activeCollection, 4);
     const relaxed = relaxColumns(nodesNew, 36);
-    const withStubs = ensureRelationCounterparts(relaxed, relations);
-    setNodes(withStubs);
-    setEdges(buildEdgesFromRelations(withStubs, relations));
+    const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+    setNodes(withNoStubs);
+    setEdges(buildEdgesFromRelations(withNoStubs, relations));
     setLastTemplateDoc(docs[0] ?? null);
     setLayoutTick((t) => t + 1);
   }, [activeCollection, selected, db, relaxColumns, relations, ensureRelationCounterparts]);
@@ -806,16 +770,15 @@ export default function App() {
     if (!selected) return;
     const { col: sCol, id: sId } = splitNodeId(sourceNodeId);
     const { id: tId } = splitNodeId(targetNodeId);
+    // schrijf enkel naar backend; géén refresh/fit/layout hier
     await updateDoc(selected._id, sCol, db, sId, { [chosenField]: { $oid: tId } });
-    if (sCol === activeCollection) await refreshActiveAfterChange();
-  }, [selected, db, activeCollection, splitNodeId, refreshActiveAfterChange]);
+  }, [selected, db, splitNodeId]);
 
   const clearRelationField = useCallback(async (sourceNodeId: string, viaField?: string) => {
     if (!selected || !viaField) return;
     const { col: sCol, id: sId } = splitNodeId(sourceNodeId);
     await updateDoc(selected._id, sCol, db, sId, { [viaField]: null });
-    if (sCol === activeCollection) await refreshActiveAfterChange();
-  }, [selected, db, activeCollection, splitNodeId, refreshActiveAfterChange]);
+  }, [selected, db, splitNodeId]);
 
   // ---------- Init: load profiles + restore selected/db ----------
   useEffect(() => {
@@ -872,11 +835,11 @@ export default function App() {
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
       const allRels = loadAllRelations();
-      const withStubs = ensureRelationCounterparts(relaxed, allRels);
-      setNodes(withStubs);
+      const withNoStubs = ensureRelationCounterparts(relaxed, allRels);
+      setNodes(withNoStubs);
       setLastTemplateDoc(docs[0] ?? null);
       setRelations(allRels);
-      setEdges(buildEdgesFromRelations(withStubs, allRels));
+      setEdges(buildEdgesFromRelations(withNoStubs, allRels));
       setLayoutTick((t) => t + 1);
     };
 
@@ -961,31 +924,25 @@ export default function App() {
     return m;
   }, [nodes]);
 
+  // Alleen edges aanpassen; nodes/posities ongemoeid laten
   const addRelation = useCallback((r: Relation) => {
     setRelations((prev) => {
       if (prev.some((x) => x.sourceId === r.sourceId && x.targetId === r.targetId)) return prev;
       const next = [...prev, r];
       saveAllRelations(next);
-      // nodes kan stubs missen → voeg ze toe en herbouw edges
-      const withStubs = ensureRelationCounterparts(nodes, next);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, next));
-      setLayoutTick((t) => t + 1);
+      setEdges(buildEdgesFromRelations(nodes, next));
       return next;
     });
-  }, [nodes, ensureRelationCounterparts, setEdges]);
+  }, [nodes, setEdges]);
 
   const removeRelation = useCallback((sourceId: string, targetId: string) => {
     setRelations((prev) => {
       const next = prev.filter((r) => !(r.sourceId === sourceId && r.targetId === targetId));
       saveAllRelations(next);
-      const withStubs = ensureRelationCounterparts(nodes, next);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, next));
-      setLayoutTick((t) => t + 1);
+      setEdges(buildEdgesFromRelations(nodes, next));
       return next;
     });
-  }, [nodes, ensureRelationCounterparts, setEdges]);
+  }, [nodes, setEdges]);
 
   // ---------- React Flow handlers ----------
   const onConnect = useCallback(async (connection: Connection) => {
@@ -1010,7 +967,7 @@ export default function App() {
     const fallback = tCol.endsWith("s") ? `${tCol.slice(0, -1)}Id` : `${tCol}Id`;
     const chosenField = viaField || fallback;
 
-    // Optimistic UI (met stubs zodat elke edge zichtbaar is)
+    // Optimistic UI: alleen edge — geen nodes/layout updaten
     addRelation({ sourceId, targetId, viaField: chosenField });
 
     try {
@@ -1073,9 +1030,9 @@ export default function App() {
       const docs = await getDocs(selected._id, activeCollection, db, 100);
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
-      const withStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, relations));
+      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withNoStubs);
+      setEdges(buildEdgesFromRelations(withNoStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
       setLayoutTick((t) => t + 1);
     } catch (e: any) {
@@ -1113,9 +1070,9 @@ export default function App() {
       const docs = await getDocs(selected._id, activeCollection, db, 100);
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
-      const withStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, relations));
+      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withNoStubs);
+      setEdges(buildEdgesFromRelations(withNoStubs, relations));
 
       setDocDetail(saved);
       setIsEditing(false);
@@ -1154,9 +1111,9 @@ export default function App() {
       const docs = await getDocs(selected._id, activeCollection, db, 100);
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
-      const withStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withStubs);
-      setEdges(buildEdgesFromRelations(withStubs, relations));
+      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withNoStubs);
+      setEdges(buildEdgesFromRelations(withNoStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
       setLayoutTick((t) => t + 1);
     } catch (e: any) {
