@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -9,13 +9,12 @@ import ReactFlow, {
   useEdgesState,
   Handle,
 } from "reactflow";
-import type { Connection, Edge, Node } from "reactflow";
+import type { Connection, Edge, Node, ReactFlowInstance } from "reactflow";
 import "reactflow/dist/style.css";
+import logo from "/src/assets/MongoDBMyAdmin-logo-no-bg.png";
 
 import {
   ChevronRight,
-  Database,
-  Link2,
   Search,
   Settings,
   Plus,
@@ -48,9 +47,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
 // ============================================================
 // Types
 // ============================================================
-
 type MongoDocument = { _id: any; [key: string]: any };
-
 type Collection = { name: string; count: number };
 
 type ConnectionProfile = {
@@ -60,7 +57,6 @@ type ConnectionProfile = {
   defaultDatabase?: string;
 };
 
-// Relaties
 type Relation = {
   sourceId: string;   // "collection:docId"
   targetId: string;   // "collection:docId"
@@ -106,7 +102,7 @@ const MOCK_DOCS: Record<string, MongoDocument[]> = {
 };
 
 // ============================================================
-/* API Client (Laravel endpoints). Set VITE_API_URL in your frontend .env */
+// API Client (Laravel endpoints). Set VITE_API_URL in your frontend .env
 // ============================================================
 const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
@@ -170,6 +166,28 @@ async function deleteDoc(profileId: string, collection: string, db: string | und
     method: "DELETE",
   });
 }
+// Update (Edit) – PATCH i.p.v. PUT (volgens Allow-header)
+async function updateDoc(
+  profileId: string,
+  collection: string,
+  db: string | undefined,
+  id: string,
+  doc: any
+) {
+  const params = new URLSearchParams();
+  params.set("profile", profileId);
+  if (db) params.set("db", db);
+
+  const { _id, ...payload } = doc ?? {}; // _id niet terugsturen
+  return api<MongoDocument>(
+    `/collections/${collection}/docs/${id}?${params.toString()}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+}
 
 // ============================================================
 // Helpers (Mongo Extended JSON → display-safe)
@@ -212,7 +230,7 @@ function normalizeForDisplay(value: any): any {
   return String(value);
 }
 
-// Safe stringify for modal JSON (avoids crash on circular/bigint)
+// Safe stringify voor modal JSON
 function safeStringify(obj: any, space = 2) {
   const seen = new WeakSet();
   try {
@@ -233,9 +251,37 @@ function safeStringify(obj: any, space = 2) {
   }
 }
 
-// ============================================================
+// Export helper
+function downloadJson(filename: string, data: any) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Local history helpers (per doc)
+function histKey(collection: string, id: string) {
+  return `mv_hist:${collection}:${id}`;
+}
+type DocHistoryItem = { ts: number; doc: any };
+function loadHistory(collection: string, id: string): DocHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(histKey(collection, id));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+function pushHistory(collection: string, id: string, doc: any) {
+  const arr = loadHistory(collection, id);
+  arr.unshift({ ts: Date.now(), doc });
+  localStorage.setItem(histKey(collection, id), JSON.stringify(arr.slice(0, 20)));
+}
+
 // Template helper for “Use previous structure”
-// ============================================================
 function buildTemplateFromDoc(src: any): any {
   if (src == null) return null;
   if (Array.isArray(src)) {
@@ -298,25 +344,22 @@ function buildEdgesFromRelations(nodes: Node[], rels: Relation[]): Edge[] {
     }));
 }
 
-// heuristiek: probeer viaField af te leiden
+// Heuristiek: probeer viaField af te leiden
 function guessViaField(sourceDoc: any, targetDoc: any, srcCol: string, tgtCol: string): string | undefined {
   const srcId = idToString(sourceDoc?._id);
   const tgtId = idToString(targetDoc?._id);
 
-  // 1) direct value match in source → targetId
   for (const [k, v] of Object.entries(sourceDoc || {})) {
     if (k === "_id") continue;
     if (idToString(v) === tgtId) return k;
   }
-  // 2) direct value match in target → sourceId (reverse)
   for (const [k, v] of Object.entries(targetDoc || {})) {
     if (k === "_id") continue;
     if (idToString(v) === srcId) return k;
   }
-  // 3) naam-heuristiek (userId, usersId, productId, etc.)
   const candidates = [
     `${tgtCol}Id`,
-    `${tgtCol.slice(0, -1)}Id`, // naive singular
+    `${tgtCol.slice(0, -1)}Id`,
     `ref${tgtCol[0].toUpperCase()}${tgtCol.slice(1)}Id`,
   ];
   for (const c of candidates) {
@@ -479,8 +522,8 @@ function ConnectionWizard({
         uri,
         defaultDatabase: defaultDb || undefined,
       });
-        setCreated(prof);
-        setStep(3);
+      setCreated(prof);
+      setStep(3);
     } catch (e: any) {
       setError(e.message || "Failed to save");
     } finally {
@@ -586,6 +629,41 @@ function ConnectionWizard({
 }
 
 // ============================================================
+// Schema (simple inference)
+// ============================================================
+type FieldRow = { path: string; type: string; sample: string };
+
+function inferType(val: any): string {
+  if (val === null) return "null";
+  if (Array.isArray(val)) return "array";
+  const t = typeof val;
+  if (t === "object") return "object";
+  return t; // string, number, boolean
+}
+
+function walkSchemaRows(obj: any, base = ""): FieldRow[] {
+  if (!obj || typeof obj !== "object") return [];
+  const rows: FieldRow[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    const path = base ? `${base}.${k}` : k;
+    const t = inferType(v);
+    if (t === "object") {
+      rows.push({ path, type: "object", sample: "{…}" });
+      rows.push(...walkSchemaRows(v, path));
+    } else if (t === "array") {
+      const sample = (v as any[])[0];
+      rows.push({ path, type: "array", sample: sample == null ? "[]" : `[${inferType(sample)}]` });
+      if (sample && typeof sample === "object" && !Array.isArray(sample)) {
+        rows.push(...walkSchemaRows(sample, `${path}[]`));
+      }
+    } else {
+      rows.push({ path, type: t, sample: String(shortVal(v)) });
+    }
+  }
+  return rows;
+}
+
+// ============================================================
 // Main App with Connection Switcher + Canvas (+ Relations)
 // ============================================================
 export default function App() {
@@ -613,12 +691,133 @@ export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
   const nodeTypes = useMemo(() => ({ doc: DocNode }), []);
+  const [rf, setRf] = useState<ReactFlowInstance | null>(null);
 
   // Relations
   const [relations, setRelations] = useState<Relation[]>([]);
   const [relationMode, setRelationMode] = useState<boolean>(false);
 
-  // ---------- Init: load profiles + restore selected/db from localStorage ----------
+  // Edit modal state (for doc)
+  const [isEditing, setIsEditing] = useState(false);
+  const [editJson, setEditJson] = useState<string>("{}");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [docHistory, setDocHistory] = useState<DocHistoryItem[]>([]);
+
+  // trigger voor auto-fit na (her)opbouwen nodes
+  const [layoutTick, setLayoutTick] = useState(0);
+
+  // ---- spacing per kolom (zoals je al had) ----
+  const relaxColumns = useCallback((arr: Node[], extra = 36) => {
+    const buckets = new Map<number, Node[]>();
+    const round = (x: number) => Math.round(x);
+    for (const n of arr) {
+      const key = round(n.position.x);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key)!.push(n);
+    }
+    const out: Node[] = arr.map((n) => ({ ...n, position: { ...n.position } }));
+    for (const [, list] of buckets.entries()) {
+      list.sort((a, b) => a.position.y - b.position.y);
+      let cursor = Math.min(...list.map((n) => n.position.y));
+      for (const n of list) {
+        const doc = (n.data as any)?.doc ?? {};
+        const h = estimateNodeHeight(doc);
+        const outNode = out.find((x) => x.id === n.id)!;
+        outNode.position.y = cursor;
+        cursor += h + extra;
+      }
+    }
+    return out;
+  }, []);
+
+  // === NIEUW: maak "stub" nodes voor gerelateerde docs uit andere collections ===
+  const ensureRelationCounterparts = useCallback((baseNodes: Node[], rels: Relation[]) => {
+    const idSet = new Set(baseNodes.map((n) => n.id));
+    if (!rels.length) return baseNodes;
+
+    const maxX = baseNodes.length ? Math.max(...baseNodes.map((n) => n.position.x)) : 0;
+    const stubX = maxX + 320;           // kolom rechts
+    let yCursor = 0;                    // simpele verticale stapeling
+    const yStep = 200;
+
+    const stubs: Node[] = [];
+    function ensure(id: string) {
+      if (idSet.has(id)) return;
+      idSet.add(id);
+      const [col, rawId] = id.includes(":") ? [id.split(":")[0], id.split(":").slice(1).join(":")] : [activeCollection, id];
+      stubs.push({
+        id,
+        type: "doc",
+        data: {
+          collection: col,
+          _id: rawId,
+          // minimale "doc" info zodat DocNode iets kan tonen
+          doc: { _id: rawId, _stub: true, ref: `${col}:${rawId}` },
+        },
+        position: { x: stubX, y: yCursor },
+        draggable: false,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+      });
+      yCursor += yStep;
+    }
+
+    // voeg ontbrekende eindpunten toe
+    for (const r of rels) {
+      ensure(r.sourceId);
+      ensure(r.targetId);
+    }
+
+    return stubs.length ? [...baseNodes, ...stubs] : baseNodes;
+  }, [activeCollection]);
+
+  // ---------- helpers voor relation persist ----------
+  const splitNodeId = useCallback((nodeId: string) => {
+    const idx = nodeId.indexOf(":");
+    if (idx === -1) return { col: activeCollection, id: nodeId };
+    return { col: nodeId.slice(0, idx), id: nodeId.slice(idx + 1) };
+  }, [activeCollection]);
+
+  const refreshActiveAfterChange = useCallback(async () => {
+    if (!activeCollection) return;
+    if (!selected) {
+      const docs = MOCK_DOCS[activeCollection] ?? [];
+      const nodesNew = masonryNodes(docs, activeCollection, 4);
+      const relaxed = relaxColumns(nodesNew, 36);
+      const withStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, relations));
+      setLastTemplateDoc(docs[0] ?? null);
+      setLayoutTick((t) => t + 1);
+      return;
+    }
+    const docs = await getDocs(selected._id, activeCollection, db, 100);
+    const nodesNew = masonryNodes(docs, activeCollection, 4);
+    const relaxed = relaxColumns(nodesNew, 36);
+    const withStubs = ensureRelationCounterparts(relaxed, relations);
+    setNodes(withStubs);
+    setEdges(buildEdgesFromRelations(withStubs, relations));
+    setLastTemplateDoc(docs[0] ?? null);
+    setLayoutTick((t) => t + 1);
+  }, [activeCollection, selected, db, relaxColumns, relations, ensureRelationCounterparts]);
+
+  const persistRelation = useCallback(async (sourceNodeId: string, targetNodeId: string, chosenField: string) => {
+    if (!selected) return;
+    const { col: sCol, id: sId } = splitNodeId(sourceNodeId);
+    const { id: tId } = splitNodeId(targetNodeId);
+    await updateDoc(selected._id, sCol, db, sId, { [chosenField]: { $oid: tId } });
+    if (sCol === activeCollection) await refreshActiveAfterChange();
+  }, [selected, db, activeCollection, splitNodeId, refreshActiveAfterChange]);
+
+  const clearRelationField = useCallback(async (sourceNodeId: string, viaField?: string) => {
+    if (!selected || !viaField) return;
+    const { col: sCol, id: sId } = splitNodeId(sourceNodeId);
+    await updateDoc(selected._id, sCol, db, sId, { [viaField]: null });
+    if (sCol === activeCollection) await refreshActiveAfterChange();
+  }, [selected, db, activeCollection, splitNodeId, refreshActiveAfterChange]);
+
+  // ---------- Init: load profiles + restore selected/db ----------
   useEffect(() => {
     listConnections()
       .then((list) => {
@@ -664,19 +863,21 @@ export default function App() {
       .catch((e) => console.error("[collections error]", e));
   }, [selected, db]);
 
-  // ---------- Load docs when activeCollection changes (reset canvas first) ----------
+  // ---------- Load docs when activeCollection changes ----------
   useEffect(() => {
     setNodes([]); setEdges([]);
     if (!activeCollection) return;
 
     const applyDocs = (docs: MongoDocument[]) => {
-      const nodesNew = masonryNodes(docs, activeCollection, 4);  // 👈 masonry i.p.v. grid
-      setNodes(nodesNew);
-      setLastTemplateDoc(docs[0] ?? null);
-      // edges worden hieronder uit relaties opgebouwd
+      const nodesNew = masonryNodes(docs, activeCollection, 4);
+      const relaxed = relaxColumns(nodesNew, 36);
       const allRels = loadAllRelations();
+      const withStubs = ensureRelationCounterparts(relaxed, allRels);
+      setNodes(withStubs);
+      setLastTemplateDoc(docs[0] ?? null);
       setRelations(allRels);
-      setEdges(buildEdgesFromRelations(nodesNew, allRels));
+      setEdges(buildEdgesFromRelations(withStubs, allRels));
+      setLayoutTick((t) => t + 1);
     };
 
     if (!selected) {
@@ -687,7 +888,7 @@ export default function App() {
     getDocs(selected._id, activeCollection, db, 100)
       .then(applyDocs)
       .catch((e) => console.error("[docs error]", e));
-  }, [selected, db, activeCollection, setNodes, setEdges]);
+  }, [selected, db, activeCollection, relaxColumns, setNodes, setEdges, ensureRelationCounterparts]);
 
   // ---------- Search filter (client-side) ----------
   const filteredNodes = useMemo(() => {
@@ -701,6 +902,58 @@ export default function App() {
     }));
   }, [nodes, query]);
 
+  // ---------- Auto-fit helper ----------
+  const fitToNodes = useCallback(() => {
+    if (!rf) return;
+
+    const vis = (filteredNodes as Node[]).filter((n) => !n.hidden);
+    if (!vis.length) {
+      try { rf.setViewport({ x: 0, y: 0, zoom: 0.8 }, { duration: 0 }); } catch {}
+      return;
+    }
+
+    const NODE_W = 260;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    for (const n of vis) {
+      const doc = (n.data as any)?.doc ?? {};
+      const h = estimateNodeHeight(doc);
+      const x1 = n.position.x;
+      const y1 = n.position.y;
+      const x2 = x1 + NODE_W;
+      const y2 = y1 + h;
+      if (x1 < minX) minX = x1;
+      if (y1 < minY) minY = y1;
+      if (x2 > maxX) maxX = x2;
+      if (y2 > maxY) maxY = y2;
+    }
+
+    const nCount = vis.length;
+    const margin = Math.min(300, 80 + Math.ceil(nCount / 4) * 30);
+    const bounds = {
+      x: minX - margin,
+      y: minY - margin,
+      width: (maxX - minX) + margin * 2,
+      height: (maxY - minY) + margin * 2,
+    };
+
+    try {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          rf.fitBounds(bounds, { padding: 0.1, duration: 300 });
+          const z = rf.getZoom();
+          const clamped = Math.max(0.35, Math.min(0.95, z));
+          if (Math.abs(clamped - z) > 0.001) rf.zoomTo(clamped);
+        });
+      });
+    } catch {}
+  }, [rf, filteredNodes]);
+
+  useEffect(() => {
+    fitToNodes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutTick, activeCollection]);
+
   // ---------- Relation builders ----------
   const nodeMap = useMemo(() => {
     const m = new Map<string, Node>();
@@ -710,28 +963,32 @@ export default function App() {
 
   const addRelation = useCallback((r: Relation) => {
     setRelations((prev) => {
-      // dedup
       if (prev.some((x) => x.sourceId === r.sourceId && x.targetId === r.targetId)) return prev;
       const next = [...prev, r];
       saveAllRelations(next);
-      // edges opnieuw
-      setEdges(buildEdgesFromRelations(nodes, next));
+      // nodes kan stubs missen → voeg ze toe en herbouw edges
+      const withStubs = ensureRelationCounterparts(nodes, next);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, next));
+      setLayoutTick((t) => t + 1);
       return next;
     });
-  }, [nodes, setEdges]);
+  }, [nodes, ensureRelationCounterparts, setEdges]);
 
   const removeRelation = useCallback((sourceId: string, targetId: string) => {
     setRelations((prev) => {
       const next = prev.filter((r) => !(r.sourceId === sourceId && r.targetId === targetId));
       saveAllRelations(next);
-      setEdges(buildEdgesFromRelations(nodes, next));
+      const withStubs = ensureRelationCounterparts(nodes, next);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, next));
+      setLayoutTick((t) => t + 1);
       return next;
     });
-  }, [nodes, setEdges]);
+  }, [nodes, ensureRelationCounterparts, setEdges]);
 
   // ---------- React Flow handlers ----------
-  const onConnect = useCallback((connection: Connection) => {
-    // Alleen als Relation Mode aan staat
+  const onConnect = useCallback(async (connection: Connection) => {
     if (!relationMode) return;
 
     const sourceId = connection.source!;
@@ -740,23 +997,47 @@ export default function App() {
     const targetNode = nodeMap.get(targetId);
 
     let viaField: string | undefined;
+    let sCol = activeCollection, tCol = activeCollection;
+
     if (sourceNode && targetNode) {
-      const sCol = (sourceNode.data as any).collection;
-      const tCol = (targetNode.data as any).collection;
+      sCol = (sourceNode.data as any).collection;
+      tCol = (targetNode.data as any).collection;
       const sDoc = (sourceNode.data as any).doc;
       const tDoc = (targetNode.data as any).doc;
       viaField = guessViaField(sDoc, tDoc, sCol, tCol);
     }
 
-    addRelation({ sourceId, targetId, viaField });
-  }, [relationMode, nodeMap, addRelation]);
+    const fallback = tCol.endsWith("s") ? `${tCol.slice(0, -1)}Id` : `${tCol}Id`;
+    const chosenField = viaField || fallback;
 
-  const onEdgeClick = useCallback((_e: any, edge: Edge) => {
-    const [sourceId, targetId] = [edge.source, edge.target];
-    if (confirm("Delete this relation?")) {
+    // Optimistic UI (met stubs zodat elke edge zichtbaar is)
+    addRelation({ sourceId, targetId, viaField: chosenField });
+
+    try {
+      await persistRelation(sourceId, targetId, chosenField);
+    } catch (e) {
+      console.error("[persistRelation failed]", e);
       removeRelation(sourceId, targetId);
+      alert("Failed to persist relation. Check console.");
     }
-  }, [removeRelation]);
+  }, [relationMode, nodeMap, activeCollection, addRelation, removeRelation, persistRelation]);
+
+  const onEdgeClick = useCallback(async (_e: any, edge: Edge) => {
+    const [sourceId, targetId] = [edge.source, edge.target];
+    if (!confirm("Delete this relation?")) return;
+
+    const rel = relations.find((r) => r.sourceId === sourceId && r.targetId === targetId);
+    const viaField = rel?.viaField;
+
+    removeRelation(sourceId, targetId);
+
+    try {
+      await clearRelationField(sourceId, viaField);
+    } catch (e) {
+      console.error("[clearRelationField failed]", e);
+      alert("Failed to clear relation field in DB. You may need to refresh.");
+    }
+  }, [relations, removeRelation, clearRelationField]);
 
   // ---------- Open doc modal ----------
   const openDocFromNode = useCallback((node: Node) => {
@@ -766,14 +1047,19 @@ export default function App() {
       if (!doc || typeof doc !== "object") return;
       setDocDetail(doc as MongoDocument);
       setLastTemplateDoc(doc);
+      setIsEditing(false);
+      setEditJson(safeStringify(doc, 2));
+      const idStr = idToString((doc as any)._id);
+      setDocHistory(loadHistory((maybe?.collection as string) || activeCollection, idStr));
     } catch (err) {
       console.error("[openDocFromNode]", err, node);
     }
-  }, []);
+  }, [activeCollection]);
+
   const onNodeClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
   const onNodeDoubleClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
 
-  // ---------- Create modal handlers ----------
+  // ---------- Create / Edit / Export / Delete ----------
   async function handleCreateDocument() {
     if (!selected) { setCreateError("Select a connection first."); return; }
     if (!activeCollection) { setCreateError("Select a collection first."); return; }
@@ -785,10 +1071,13 @@ export default function App() {
       await createDoc(selected._id, activeCollection, db, obj);
       setCreateOpen(false);
       const docs = await getDocs(selected._id, activeCollection, db, 100);
-      const newNodes = masonryNodes(docs, activeCollection, 4);
-      setNodes(newNodes);
-      setEdges(buildEdgesFromRelations(newNodes, relations));
+      const nodesNew = masonryNodes(docs, activeCollection, 4);
+      const relaxed = relaxColumns(nodesNew, 36);
+      const withStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
+      setLayoutTick((t) => t + 1);
     } catch (e: any) {
       setCreateError(e.message || "Failed to create document");
     } finally {
@@ -796,7 +1085,62 @@ export default function App() {
     }
   }
 
-  // ---------- Delete from modal ----------
+  function handleStartEdit() {
+    setIsEditing(true);
+    setEditError(null);
+    setEditJson(safeStringify(docDetail, 2));
+  }
+
+  async function handleSaveEdit() {
+    if (!docDetail) return;
+    if (!selected) { alert("Select a connection first."); return; }
+    if (!activeCollection) { alert("Select a collection first."); return; }
+
+    try {
+      setEditSaving(true);
+      setEditError(null);
+
+      const idStr = idToString((docDetail as any)._id);
+      let obj: any;
+      try { obj = JSON.parse(editJson || "{}"); }
+      catch (e: any) { throw new Error("Invalid JSON: " + e.message); }
+
+      pushHistory(activeCollection, idStr, docDetail);
+      setDocHistory(loadHistory(activeCollection, idStr));
+
+      const saved = await updateDoc(selected._id, activeCollection, db, idStr, obj);
+
+      const docs = await getDocs(selected._id, activeCollection, db, 100);
+      const nodesNew = masonryNodes(docs, activeCollection, 4);
+      const relaxed = relaxColumns(nodesNew, 36);
+      const withStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, relations));
+
+      setDocDetail(saved);
+      setIsEditing(false);
+      setEditJson(safeStringify(saved, 2));
+      setLayoutTick((t) => t + 1);
+    } catch (e: any) {
+      setEditError(e.message || "Failed to save");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  function handleClone() {
+    if (!docDetail) return;
+    const cloneBody = buildTemplateFromDoc(docDetail);
+    setCreateJson(JSON.stringify(cloneBody, null, 2));
+    setCreateOpen(true);
+  }
+
+  function handleExport() {
+    if (!docDetail) return;
+    const idStr = idToString((docDetail as any)._id);
+    downloadJson(`${activeCollection}-${idStr}.json`, docDetail);
+  }
+
   async function handleDeleteCurrent() {
     if (!docDetail) return;
     if (!selected) { alert("Select a connection first."); return; }
@@ -808,11 +1152,13 @@ export default function App() {
       await deleteDoc(selected._id, activeCollection, db, idStr);
       setDocDetail(null);
       const docs = await getDocs(selected._id, activeCollection, db, 100);
-      const newNodes = masonryNodes(docs, activeCollection, 4);
-      setNodes(newNodes);
-      // filter relaties die deze node gebruiken (optioneel: nu laten staan; edge verdwijnt toch omdat node ontbreekt)
-      setEdges(buildEdgesFromRelations(newNodes, relations));
+      const nodesNew = masonryNodes(docs, activeCollection, 4);
+      const relaxed = relaxColumns(nodesNew, 36);
+      const withStubs = ensureRelationCounterparts(relaxed, relations);
+      setNodes(withStubs);
+      setEdges(buildEdgesFromRelations(withStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
+      setLayoutTick((t) => t + 1);
     } catch (e: any) {
       alert(e.message || "Delete failed");
     }
@@ -822,13 +1168,24 @@ export default function App() {
     <div className="container-fluid vh-100">
       <Row className="h-100">
         {/* Sidebar */}
-        <Col md={3} lg={2} className="border-end py-3 d-flex flex-column">
-          <div className="d-flex align-items-center gap-2 px-2 mb-2">
-            <Database size={18} />
-            <strong>Collections</strong>
+        <Col
+          md={3}
+          lg={2}
+          className="border-end d-flex flex-column"
+          style={{ paddingTop: "8px" }}
+        >
+          <div
+            className="px-2 mb-3 d-flex flex-column align-items-center gap-2"
+            style={{ marginTop: "-8px" }}
+          >
+            <img
+              src={logo}
+              alt="MongoDB MyAdmin"
+              style={{ height: 130, objectFit: "contain" }}
+            />
           </div>
 
-          <div className="flex-grow-1 overflow-auto pe-2">
+          <div className="flex-grow-1 overflow-auto pe-2" style={{ paddingBottom: "3rem" }}>
             {collections.map((c) => (
               <Button
                 key={c.name}
@@ -842,7 +1199,7 @@ export default function App() {
             ))}
           </div>
 
-          <Button variant="outline-secondary" className="mt-2">
+          <Button variant="outline-secondary" className="mt-2 mb-3 mx-2">
             <Plus size={16} className="me-1" /> New collection
           </Button>
         </Col>
@@ -858,7 +1215,6 @@ export default function App() {
                     {relationMode && <Badge bg="info" className="ms-2">Relation mode</Badge>}
                   </Card.Title>
                   <div className="d-flex align-items-center gap-2">
-                    {/* Connection switcher */}
                     <Dropdown>
                       <Dropdown.Toggle size="sm" variant={selected ? "success" : "outline-secondary"}>
                         {selected ? selected.name : "No connection"}
@@ -882,7 +1238,6 @@ export default function App() {
                       </Dropdown.Menu>
                     </Dropdown>
 
-                    {/* DB input (optional) */}
                     <Form.Control
                       size="sm"
                       style={{ width: 160 }}
@@ -902,7 +1257,6 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Create new document */}
                     <Button
                       size="sm"
                       onClick={() => {
@@ -914,7 +1268,6 @@ export default function App() {
                       <Plus size={14} className="me-1" /> New document
                     </Button>
 
-                    {/* Relation mode toggle */}
                     <ToggleButton
                       id="relation-mode"
                       type="checkbox"
@@ -943,17 +1296,17 @@ export default function App() {
                     nodes={filteredNodes}
                     edges={edges}
                     onNodesChange={onNodesChange}
-                    // edges worden door relaties bestuurd, we luisteren alleen voor clicks
                     onEdgesChange={onEdgesChange}
                     onEdgeClick={onEdgeClick}
                     onConnect={onConnect}
                     onNodeClick={onNodeClick}
                     onNodeDoubleClick={onNodeDoubleClick}
-                    fitView
-                    fitViewOptions={{ padding: 0.2, includeHiddenNodes: false }}
                     defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
                     minZoom={0.2}
                     maxZoom={1.5}
+                    onInit={(inst) => {
+                      setRf(inst);
+                    }}
                   >
                     <MiniMap pannable zoomable />
                     <Controls />
@@ -966,7 +1319,6 @@ export default function App() {
         </Col>
       </Row>
 
-      {/* Mock badge when disconnected */}
       {!selected && (
         <div
           style={{
@@ -998,47 +1350,144 @@ export default function App() {
                   <strong>Actions</strong>
                 </Card.Header>
                 <Card.Body className="d-grid gap-2">
-                  <Button size="sm">Edit</Button>
-                  <Button size="sm" variant="outline-secondary">
+                  {!isEditing ? (
+                    <Button size="sm" onClick={handleStartEdit}>Edit</Button>
+                  ) : (
+                    <Button size="sm" variant="success" disabled={editSaving} onClick={handleSaveEdit}>
+                      {editSaving ? "Saving..." : "Save changes"}
+                    </Button>
+                  )}
+
+                  <Button size="sm" variant="outline-secondary" onClick={handleClone}>
                     Clone
                   </Button>
-                  <Button size="sm" variant="outline-secondary">
+
+                  <Button size="sm" variant="outline-secondary" onClick={handleExport}>
                     Export JSON
                   </Button>
+
                   <Button size="sm" variant="danger" onClick={handleDeleteCurrent}>
                     Delete
                   </Button>
+
+                  {editError && <Alert className="mt-2 mb-0" variant="danger">{editError}</Alert>}
                 </Card.Body>
               </Card>
             </Col>
+
             <Col xs={12} md={8}>
               <Tab.Container defaultActiveKey="json">
                 <Nav variant="tabs">
-                  <Nav.Item>
-                    <Nav.Link eventKey="json">JSON</Nav.Link>
-                  </Nav.Item>
-                  <Nav.Item>
-                    <Nav.Link eventKey="schema">Schema</Nav.Link>
-                  </Nav.Item>
-                  <Nav.Item>
-                    <Nav.Link eventKey="history">History</Nav.Link>
-                  </Nav.Item>
-                  <Nav.Item>
-                    <Nav.Link eventKey="relations">Relations</Nav.Link>
-                  </Nav.Item>
+                  <Nav.Item><Nav.Link eventKey="json">JSON</Nav.Link></Nav.Item>
+                  <Nav.Item><Nav.Link eventKey="schema">Schema</Nav.Link></Nav.Item>
+                  <Nav.Item><Nav.Link eventKey="history">History</Nav.Link></Nav.Item>
+                  <Nav.Item><Nav.Link eventKey="relations">Relations</Nav.Link></Nav.Item>
                 </Nav>
+
                 <Tab.Content className="border border-top-0 rounded-bottom p-3" style={{ height: 360, overflow: "auto" }}>
+                  {/* JSON */}
                   <Tab.Pane eventKey="json">
-                    <pre className="small mb-0">{safeStringify(docDetail, 2)}</pre>
+                    {!isEditing ? (
+                      <pre className="small mb-0">{safeStringify(docDetail, 2)}</pre>
+                    ) : (
+                      <Form.Group>
+                        <Form.Label className="small text-muted">Edit JSON</Form.Label>
+                        <Form.Control
+                          as="textarea"
+                          rows={14}
+                          value={editJson}
+                          onChange={(e) => setEditJson(e.target.value)}
+                          spellCheck={false}
+                        />
+                        <Form.Text className="text-muted">
+                          Tip: laat <code>_id</code> intact of gebruik hetzelfde type als je backend verwacht.
+                        </Form.Text>
+                      </Form.Group>
+                    )}
                   </Tab.Pane>
-                  <Tab.Pane eventKey="schema" className="text-muted small">
-                    (Future) Inferred schema, field types, indexes.
+
+                  {/* Schema */}
+                  <Tab.Pane eventKey="schema">
+                    {docDetail ? (
+                      <div className="small">
+                        <table className="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th style={{ width: "55%" }}>Field</th>
+                              <th style={{ width: "20%" }}>Type</th>
+                              <th>Sample</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {walkSchemaRows(docDetail).map((r) => (
+                              <tr key={r.path}>
+                                <td><code>{r.path}</code></td>
+                                <td><span className="badge bg-light text-dark">{r.type}</span></td>
+                                <td className="text-truncate">{r.sample}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-muted small">(No document)</div>
+                    )}
                   </Tab.Pane>
-                  <Tab.Pane eventKey="history" className="text-muted small">
-                    (Future) Document revision history (Change Streams or audit log).
+
+                  {/* History */}
+                  <Tab.Pane eventKey="history">
+                    {docDetail ? (
+                      docHistory.length ? (
+                        <div className="small">
+                          {docHistory.map((h, i) => (
+                            <details key={i} className="mb-2">
+                              <summary>
+                                {new Date(h.ts).toLocaleString()}
+                                <span className="text-muted ms-2">(previous version)</span>
+                              </summary>
+                              <pre className="mt-2">{safeStringify(h.doc, 2)}</pre>
+                            </details>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-muted small">No history yet. Save an edit to create a version.</div>
+                      )
+                    ) : (
+                      <div className="text-muted small">(No document)</div>
+                    )}
                   </Tab.Pane>
-                  <Tab.Pane eventKey="relations" className="text-muted small">
-                    (Future) Related documents based on edges drawn on the canvas.
+
+                  {/* Relations */}
+                  <Tab.Pane eventKey="relations" className="small">
+                    {docDetail ? (
+                      (() => {
+                        const myId = `${activeCollection}:${idToString((docDetail as any)._id)}`;
+                        const rels = relations.filter((r) => r.sourceId === myId || r.targetId === myId);
+                        if (!rels.length) return <div className="text-muted">No relations.</div>;
+                        return (
+                          <ul className="list-unstyled mb-0">
+                            {rels.map((r, idx) => {
+                              return (
+                                <li key={idx} className="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                                  <div>
+                                    {r.sourceId} → {r.targetId} {r.viaField && <em>({r.viaField})</em>}
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline-danger"
+                                    onClick={() => removeRelation(r.sourceId, r.targetId)}
+                                  >
+                                    Unlink
+                                  </Button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        );
+                      })()
+                    ) : (
+                      <div className="text-muted small">(No document)</div>
+                    )}
                   </Tab.Pane>
                 </Tab.Content>
               </Tab.Container>
@@ -1058,7 +1507,6 @@ export default function App() {
         <Modal.Body>
           {createError && <Alert variant="danger" className="mb-2">{createError}</Alert>}
 
-          {/* Quick template buttons */}
           <div className="d-flex align-items-center gap-2 mb-2">
             <span className="text-muted small">Template:</span>
             <ButtonGroup size="sm">
