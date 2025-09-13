@@ -926,45 +926,45 @@ export default function App() {
 
 // ---------- Auto-fit helper (one-shot, meer uitgezoomd) ----------
 const fitToNodes = useCallback(() => {
-  if (!rf || didInitialFitRef.current) return;
+    if (!rf || didInitialFitRef.current) return;
 
-  const base = (nodesRef.current || []).filter(n => !n.hidden);
-  if (!base.length) return;
+    const base = (nodesRef.current || []).filter(n => !n.hidden);
+    if (!base.length) return;
 
-  // bounds berekenen
-  const NODE_W = 260;
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of base) {
-    const h = estimateNodeHeight((n.data as any)?.doc ?? {});
-    const x1 = n.position.x, y1 = n.position.y, x2 = x1 + NODE_W, y2 = y1 + h;
-    if (x1 < minX) minX = x1;
-    if (y1 < minY) minY = y1;
-    if (x2 > maxX) maxX = x2;
-    if (y2 > maxY) maxY = y2;
-  }
-  const margin = 200;
-  const bounds = {
-    x: minX - margin,
-    y: minY - margin,
-    width: (maxX - minX) + margin * 2,
-    height: (maxY - minY) + margin * 2,
-  };
+    // bounds berekenen
+    const NODE_W = 260;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of base) {
+      const h = estimateNodeHeight((n.data as any)?.doc ?? {});
+      const x1 = n.position.x, y1 = n.position.y, x2 = x1 + NODE_W, y2 = y1 + h;
+      if (x1 < minX) minX = x1;
+      if (y1 < minY) minY = y1;
+      if (x2 > maxX) maxX = x2;
+      if (y2 > maxY) maxY = y2;
+    }
+    const margin = 200;
+    const bounds = {
+      x: minX - margin,
+      y: minY - margin,
+      width: (maxX - minX) + margin * 2,
+      height: (maxY - minY) + margin * 2,
+    };
 
-  // pas fit toe nádat ReactFlow canvas geverfd is
-  requestAnimationFrame(() => {
+    // pas fit toe nádat ReactFlow canvas geverfd is
     requestAnimationFrame(() => {
-      rf.fitBounds(bounds, { padding: 0.15, duration: 0 });
+      requestAnimationFrame(() => {
+        rf.fitBounds(bounds, { padding: 0.15, duration: 0 });
 
-      // centreer expliciet + klein tikje uitzoomen voor lucht
-      const cx = bounds.x + bounds.width / 2;
-      const cy = bounds.y + bounds.height / 2;
-      rf.setCenter(cx, cy, { zoom: Math.max(0.35, rf.getZoom() * 0.9), duration: 0 });
+        // centreer expliciet + klein tikje uitzoomen voor lucht
+        const cx = bounds.x + bounds.width / 2;
+        const cy = bounds.y + bounds.height / 2;
+        rf.setCenter(cx, cy, { zoom: Math.max(0.35, rf.getZoom() * 0.9), duration: 0 });
 
-      didInitialFitRef.current = true;
-      pendingFitRef.current = false;
+        didInitialFitRef.current = true;
+        pendingFitRef.current = false;
+      });
     });
-  });
-}, [rf]);
+  }, [rf]);
 
   // =============== List → Canvas bridge state ===============
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -1028,32 +1028,60 @@ const fitToNodes = useCallback(() => {
     }
     return out;
   }, [canvasPool, nodes]);
+  // put this below buildCanvasNodesFromPool (and above edges memo is fine)
+useEffect(() => {
+  if (viewMode === "canvas") {
+    // render the canvas pool as the current nodes
+    const next = buildCanvasNodesFromPool();
+    setNodes(next);
+
+    // reset + fit after the canvas & nodes have actually painted
+    didInitialFitRef.current = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitToNodes();
+      });
+    });
+  } else {
+    // back to list → restore list layout and do its one-time fit
+    didInitialFitRef.current = false;
+    refreshActiveAfterChange();
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [viewMode, buildCanvasNodesFromPool]);
 
   // When switching to canvas, render canvas-pool as current nodes
-// Als canvas zichtbaar is en het paneel een size > 0 krijgt, fit dan 1x
-useEffect(() => {
-  if (viewMode !== "canvas") return;
+  useEffect(() => {
+    if (viewMode !== "canvas") return;
 
-  const el = canvasWrapRef.current;
-  if (!el) return;
+    const el = canvasWrapRef.current;
+    if (!el) return;
 
-  const maybeRun = () => {
-    const rect = el.getBoundingClientRect();
-    // alleen fitten als er nodes zijn én het canvas echt ruimte heeft
-    if (rect.width > 0 && rect.height > 0 && (nodesRef.current?.length ?? 0) > 0) {
-      fitToNodes();
-    }
-  };
+    const maybeRun = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && (nodesRef.current?.length ?? 0) > 0) {
+        fitToNodes();
+      }
+    };
 
-  // eerste check direct
-  maybeRun();
+    // eerste check direct
+    maybeRun();
 
-  // daarna op size-veranderingen
-  const ro = new ResizeObserver(() => maybeRun());
-  ro.observe(el);
+    // daarna op size-veranderingen
+    const ro = new ResizeObserver(() => maybeRun());
+    ro.observe(el);
 
-  return () => ro.disconnect();
-}, [viewMode, fitToNodes]);
+    return () => ro.disconnect();
+  }, [viewMode, fitToNodes]);
+
+  // Extra guard: zodra nodes veranderen en we in canvas zitten, doe (eenmalig) fit
+  useEffect(() => {
+    if (viewMode !== "canvas") return;
+    if (!rf) return;
+    if (!nodes.length) return;
+    if (didInitialFitRef.current) return;
+    fitToNodes();
+  }, [nodes, rf, viewMode, fitToNodes]);
 
   // Edges derived from current nodes + relations
   const edges: Edge[] = useMemo(
@@ -1594,7 +1622,11 @@ useEffect(() => {
 
                 {/* CANVAS VIEW */}
                 {viewMode === "canvas" && (
-                  <div style={{ height: "72vh" }} className="border rounded-bottom overflow-hidden">
+                <div
+                    ref={canvasWrapRef}  // <<< CHANGED: koppelt de ResizeObserver aan dit element
+                    style={{ height: "72vh" }}
+                    className="border rounded-bottom overflow-hidden"
+                  >
                     <ReactFlow
                       key={`${selected?._id ?? "mock"}:${activeCollection}:canvas`}
                       nodeTypes={nodeTypes}
@@ -1618,7 +1650,7 @@ useEffect(() => {
                       maxZoom={1.5}
                       onInit={(inst) => {
                         setRf(inst);
-                        // als we al een fit “in de wacht” hebben staan, doe ‘m na mount
+                        requestAnimationFrame(() => requestAnimationFrame(() => fitToNodes()));
                         if (pendingFitRef.current) {
                           requestAnimationFrame(() => fitToNodes());
                         }
