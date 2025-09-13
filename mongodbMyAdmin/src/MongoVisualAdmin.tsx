@@ -6,8 +6,9 @@ import ReactFlow, {
   MarkerType,
   Position,
   useNodesState,
-  useEdgesState,
   Handle,
+  applyNodeChanges,
+  type NodeChange,
 } from "reactflow";
 import type { Connection, Edge, Node, ReactFlowInstance } from "reactflow";
 import "reactflow/dist/style.css";
@@ -25,6 +26,8 @@ import {
   ListStart,
   Link as LinkIcon,
   Unlink,
+  LayoutGrid,
+  GalleryHorizontalEnd,
 } from "lucide-react";
 import {
   Button,
@@ -41,6 +44,7 @@ import {
   ButtonGroup,
   ToggleButton,
   Badge,
+  Table,
 } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -390,6 +394,14 @@ function DocNode({ data }: any) {
     .filter(([k]) => k !== "_id")
     .slice(0, 6);
 
+  const handleStyle: React.CSSProperties = {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    border: "2px solid #0d6efd",
+    background: "#fff",
+  };
+
   return (
     <div
       style={{
@@ -430,8 +442,8 @@ function DocNode({ data }: any) {
         ))}
       </div>
 
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <Handle type="target" position={Position.Left} style={{ ...handleStyle, left: -7 }} />
+      <Handle type="source" position={Position.Right} style={{ ...handleStyle, right: -7 }} />
     </div>
   );
 }
@@ -455,7 +467,7 @@ function masonryNodes(docs: MongoDocument[], collection: string, cols = 4): Node
     const h = estimateNodeHeight(doc);
     const col = colHeights.indexOf(Math.min(...colHeights));
     const x = col * gapX;
-    const y = colHeights[col];
+       const y = colHeights[col];
     const raw = idToString(doc?._id) || String(i);
 
     nodes.push({
@@ -664,9 +676,17 @@ function walkSchemaRows(obj: any, base = ""): FieldRow[] {
 }
 
 // ============================================================
-// Main App with Connection Switcher + Canvas (+ Relations)
+// Main App with List ↔ Canvas (+ Relations)
 // ============================================================
+type ViewMode = "list" | "canvas";
+
 export default function App() {
+  // Pan/drag behaviour
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const onNodeDragStart = useCallback(() => setDragging(true), []);
+  const onNodeDragStop  = useCallback(() => setDragging(false), []);
+
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
   const [selected, setSelected] = useState<ConnectionProfile | null>(null);
   const [db, setDb] = useState<string | undefined>(undefined);
@@ -687,11 +707,16 @@ export default function App() {
   // Template memory
   const [lastTemplateDoc, setLastTemplateDoc] = useState<any | null>(null);
 
-  // React Flow
-  const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
+  // React Flow nodes (one source of truth for the canvas/list we render)
+  const [nodes, setNodes] = useNodesState([] as Node[]);
   const nodeTypes = useMemo(() => ({ doc: DocNode }), []);
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+
+  // === one-time fit machinery ===
+  const didInitialFitRef = useRef(false);
+  const pendingFitRef = useRef(false);
+  const nodesRef = useRef<Node[]>([]);
+  useEffect(() => { nodesRef.current = nodes as Node[]; }, [nodes]);
 
   // Relations
   const [relations, setRelations] = useState<Relation[]>([]);
@@ -704,10 +729,13 @@ export default function App() {
   const [editError, setEditError] = useState<string | null>(null);
   const [docHistory, setDocHistory] = useState<DocHistoryItem[]>([]);
 
-  // trigger voor auto-fit na (her)opbouwen nodes
+  // layout trigger (kan blijven bestaan voor andere doeleinden)
   const [layoutTick, setLayoutTick] = useState(0);
 
-  // ---- spacing per kolom (zoals je al had) ----
+  // View mode
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+
+  // ---- spacing per kolom ----
   const relaxColumns = useCallback((arr: Node[], extra = 36) => {
     const buckets = new Map<number, Node[]>();
     const round = (x: number) => Math.round(x);
@@ -731,7 +759,7 @@ export default function App() {
     return out;
   }, []);
 
-  // === GEEN stubs meer: laat nodes ongemoeid ===
+  // === GEEN stubs: laat nodes ongemoeid ===
   const ensureRelationCounterparts = useCallback((baseNodes: Node[], _rels: Relation[]) => {
     return baseNodes;
   }, []);
@@ -751,8 +779,17 @@ export default function App() {
       const relaxed = relaxColumns(nodesNew, 36);
       const withNoStubs = ensureRelationCounterparts(relaxed, relations);
       setNodes(withNoStubs);
-      setEdges(buildEdgesFromRelations(withNoStubs, relations));
       setLastTemplateDoc(docs[0] ?? null);
+
+      // reset one-shot fit en voer hem 1x uit
+      didInitialFitRef.current = false;
+      queueMicrotask(() => {
+        if (!didInitialFitRef.current) {
+          fitToNodes();
+          didInitialFitRef.current = true;
+        }
+      });
+
       setLayoutTick((t) => t + 1);
       return;
     }
@@ -761,16 +798,24 @@ export default function App() {
     const relaxed = relaxColumns(nodesNew, 36);
     const withNoStubs = ensureRelationCounterparts(relaxed, relations);
     setNodes(withNoStubs);
-    setEdges(buildEdgesFromRelations(withNoStubs, relations));
     setLastTemplateDoc(docs[0] ?? null);
+
+    // reset one-shot fit en voer hem 1x uit
+    didInitialFitRef.current = false;
+    queueMicrotask(() => {
+      if (!didInitialFitRef.current) {
+        fitToNodes();
+        didInitialFitRef.current = true;
+      }
+    });
+
     setLayoutTick((t) => t + 1);
-  }, [activeCollection, selected, db, relaxColumns, relations, ensureRelationCounterparts]);
+  }, [activeCollection, selected, db, relaxColumns, relations, ensureRelationCounterparts, setNodes]);
 
   const persistRelation = useCallback(async (sourceNodeId: string, targetNodeId: string, chosenField: string) => {
     if (!selected) return;
     const { col: sCol, id: sId } = splitNodeId(sourceNodeId);
     const { id: tId } = splitNodeId(targetNodeId);
-    // schrijf enkel naar backend; géén refresh/fit/layout hier
     await updateDoc(selected._id, sCol, db, sId, { [chosenField]: { $oid: tId } });
   }, [selected, db, splitNodeId]);
 
@@ -828,7 +873,7 @@ export default function App() {
 
   // ---------- Load docs when activeCollection changes ----------
   useEffect(() => {
-    setNodes([]); setEdges([]);
+    setNodes([] as any[]);
     if (!activeCollection) return;
 
     const applyDocs = (docs: MongoDocument[]) => {
@@ -839,7 +884,16 @@ export default function App() {
       setNodes(withNoStubs);
       setLastTemplateDoc(docs[0] ?? null);
       setRelations(allRels);
-      setEdges(buildEdgesFromRelations(withNoStubs, allRels));
+
+      // reset one-shot fit en voer hem 1x uit
+      didInitialFitRef.current = false;
+      queueMicrotask(() => {
+        if (!didInitialFitRef.current) {
+          fitToNodes();
+          didInitialFitRef.current = true;
+        }
+      });
+
       setLayoutTick((t) => t + 1);
     };
 
@@ -851,150 +905,201 @@ export default function App() {
     getDocs(selected._id, activeCollection, db, 100)
       .then(applyDocs)
       .catch((e) => console.error("[docs error]", e));
-  }, [selected, db, activeCollection, relaxColumns, setNodes, setEdges, ensureRelationCounterparts]);
+  }, [selected, db, activeCollection, relaxColumns, setNodes, ensureRelationCounterparts]);
 
-  // ---------- Search filter (client-side) ----------
-  const filteredNodes = useMemo(() => {
-    if (!query.trim()) return nodes;
-    const q = query.toLowerCase();
-    return nodes.map((n) => ({
-      ...n,
-      hidden: !JSON.stringify((n.data as any).doc ?? (n.data as any))
-        .toLowerCase()
-        .includes(q),
-    }));
-  }, [nodes, query]);
-
-  // ---------- Auto-fit helper ----------
-  const fitToNodes = useCallback(() => {
-    if (!rf) return;
-
-    const vis = (filteredNodes as Node[]).filter((n) => !n.hidden);
-    if (!vis.length) {
-      try { rf.setViewport({ x: 0, y: 0, zoom: 0.8 }, { duration: 0 }); } catch {}
+  // ---------- Search filter (client-side) : reflect in nodes state so drag keeps working ----------
+  useEffect(() => {
+    if (!query.trim()) {
+      setNodes((prev) => prev.map((n) => ({ ...n, hidden: false })));
       return;
     }
+    const q = query.toLowerCase();
+    setNodes((prev) =>
+      prev.map((n) => {
+        const data: any = n.data ?? {};
+        const doc = data.doc ?? data;
+        const match = JSON.stringify(doc).toLowerCase().includes(q);
+        return { ...n, hidden: !match };
+      })
+    );
+  }, [query, setNodes]);
 
-    const NODE_W = 260;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+// ---------- Auto-fit helper (one-shot, meer uitgezoomd) ----------
+const fitToNodes = useCallback(() => {
+  if (!rf || didInitialFitRef.current) return;
 
-    for (const n of vis) {
-      const doc = (n.data as any)?.doc ?? {};
-      const h = estimateNodeHeight(doc);
-      const x1 = n.position.x;
-      const y1 = n.position.y;
-      const x2 = x1 + NODE_W;
-      const y2 = y1 + h;
-      if (x1 < minX) minX = x1;
-      if (y1 < minY) minY = y1;
-      if (x2 > maxX) maxX = x2;
-      if (y2 > maxY) maxY = y2;
-    }
+  const base = (nodesRef.current || []).filter(n => !n.hidden);
+  if (!base.length) return;
 
-    const nCount = vis.length;
-    const margin = Math.min(300, 80 + Math.ceil(nCount / 4) * 30);
-    const bounds = {
-      x: minX - margin,
-      y: minY - margin,
-      width: (maxX - minX) + margin * 2,
-      height: (maxY - minY) + margin * 2,
-    };
+  // bounds berekenen
+  const NODE_W = 260;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of base) {
+    const h = estimateNodeHeight((n.data as any)?.doc ?? {});
+    const x1 = n.position.x, y1 = n.position.y, x2 = x1 + NODE_W, y2 = y1 + h;
+    if (x1 < minX) minX = x1;
+    if (y1 < minY) minY = y1;
+    if (x2 > maxX) maxX = x2;
+    if (y2 > maxY) maxY = y2;
+  }
+  const margin = 200;
+  const bounds = {
+    x: minX - margin,
+    y: minY - margin,
+    width: (maxX - minX) + margin * 2,
+    height: (maxY - minY) + margin * 2,
+  };
 
-    try {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          rf.fitBounds(bounds, { padding: 0.1, duration: 300 });
-          const z = rf.getZoom();
-          const clamped = Math.max(0.35, Math.min(0.95, z));
-          if (Math.abs(clamped - z) > 0.001) rf.zoomTo(clamped);
-        });
-      });
-    } catch {}
-  }, [rf, filteredNodes]);
+  // pas fit toe nádat ReactFlow canvas geverfd is
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      rf.fitBounds(bounds, { padding: 0.15, duration: 0 });
 
+      // centreer expliciet + klein tikje uitzoomen voor lucht
+      const cx = bounds.x + bounds.width / 2;
+      const cy = bounds.y + bounds.height / 2;
+      rf.setCenter(cx, cy, { zoom: Math.max(0.35, rf.getZoom() * 0.9), duration: 0 });
+
+      didInitialFitRef.current = true;
+      pendingFitRef.current = false;
+    });
+  });
+}, [rf]);
+
+  // =============== List → Canvas bridge state ===============
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  type CanvasItem = { id: string; collection: string; doc: any };
+  const [canvasPool, setCanvasPool] = useState<Map<string, CanvasItem>>(new Map());
+
+  const CANVAS_KEY = "mv_canvas_pool:v1";
   useEffect(() => {
-    fitToNodes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutTick, activeCollection]);
+    try {
+      const raw = localStorage.getItem(CANVAS_KEY);
+      if (raw) {
+        const arr: CanvasItem[] = JSON.parse(raw);
+        setCanvasPool(new Map(arr.map(it => [it.id, it])));
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    const arr = Array.from(canvasPool.values());
+    localStorage.setItem(CANVAS_KEY, JSON.stringify(arr));
+  }, [canvasPool]);
 
-  // ---------- Relation builders ----------
-  const nodeMap = useMemo(() => {
-    const m = new Map<string, Node>();
-    nodes.forEach((n) => m.set(n.id, n));
-    return m;
-  }, [nodes]);
+  const nodeToItem = (n: Node): CanvasItem | null => {
+    const data: any = n.data ?? {};
+    const doc = data.doc ?? {};
+    if (!n.id) return null;
+    return { id: n.id, collection: data.collection, doc };
+  };
 
-  // Alleen edges aanpassen; nodes/posities ongemoeid laten
+  const addItemsToCanvas = (items: CanvasItem[]) => {
+    setCanvasPool(prev => {
+      const next = new Map(prev);
+      items.forEach(it => next.set(it.id, it));
+      return next;
+    });
+  };
+  const clearCanvas = () => setCanvasPool(new Map());
+
+  // Build canvas nodes from canvasPool (cross-collection)
+  const buildCanvasNodesFromPool = useCallback((): Node[] => {
+    if (!canvasPool.size) return nodes as Node[];
+
+    const groups = new Map<string, MongoDocument[]>();
+    canvasPool.forEach(it => {
+      const arr = groups.get(it.collection) ?? [];
+      arr.push(it.doc);
+      groups.set(it.collection, arr);
+    });
+
+    const out: Node[] = [];
+    let xOffset = 0;
+    const COLS_PER_GROUP = 2;
+    const GROUP_GAP_X = 120;
+
+    for (const [collection, docs] of groups.entries()) {
+      const part = masonryNodes(docs, collection, COLS_PER_GROUP);
+      part.forEach(n => {
+        n.position.x += xOffset;
+      });
+      out.push(...part);
+      xOffset += COLS_PER_GROUP * 280 + GROUP_GAP_X;
+    }
+    return out;
+  }, [canvasPool, nodes]);
+
+  // When switching to canvas, render canvas-pool as current nodes
+// Als canvas zichtbaar is en het paneel een size > 0 krijgt, fit dan 1x
+useEffect(() => {
+  if (viewMode !== "canvas") return;
+
+  const el = canvasWrapRef.current;
+  if (!el) return;
+
+  const maybeRun = () => {
+    const rect = el.getBoundingClientRect();
+    // alleen fitten als er nodes zijn én het canvas echt ruimte heeft
+    if (rect.width > 0 && rect.height > 0 && (nodesRef.current?.length ?? 0) > 0) {
+      fitToNodes();
+    }
+  };
+
+  // eerste check direct
+  maybeRun();
+
+  // daarna op size-veranderingen
+  const ro = new ResizeObserver(() => maybeRun());
+  ro.observe(el);
+
+  return () => ro.disconnect();
+}, [viewMode, fitToNodes]);
+
+  // Edges derived from current nodes + relations
+  const edges: Edge[] = useMemo(
+    () => buildEdgesFromRelations(nodes as Node[], relations),
+    [nodes, relations]
+  );
+
+  // Relation summary for list (counts)
+  const relSummary = useMemo(() => {
+    type Sum = { total: number; out: Record<string, number>; in: Record<string, number> };
+    const sums: Record<string, Sum> = {};
+    for (const n of nodes) {
+      sums[n.id] = { total: 0, out: {}, in: {} };
+    }
+    for (const r of relations) {
+      if (sums[r.sourceId]) {
+        sums[r.sourceId].total += 1;
+        const col = r.targetId.split(":")[0];
+        sums[r.sourceId].out[col] = (sums[r.sourceId].out[col] ?? 0) + 1;
+      }
+      if (sums[r.targetId]) {
+        sums[r.targetId].total += 1;
+        const col = r.sourceId.split(":")[0];
+        sums[r.targetId].in[col] = (sums[r.targetId].in[col] ?? 0) + 1;
+      }
+    }
+    return sums;
+  }, [nodes, relations]);
+
+  // ---------- add/remove relation (edges only, no layout reset) ----------
   const addRelation = useCallback((r: Relation) => {
     setRelations((prev) => {
       if (prev.some((x) => x.sourceId === r.sourceId && x.targetId === r.targetId)) return prev;
       const next = [...prev, r];
       saveAllRelations(next);
-      setEdges(buildEdgesFromRelations(nodes, next));
       return next;
     });
-  }, [nodes, setEdges]);
+  }, []);
 
   const removeRelation = useCallback((sourceId: string, targetId: string) => {
     setRelations((prev) => {
       const next = prev.filter((r) => !(r.sourceId === sourceId && r.targetId === targetId));
       saveAllRelations(next);
-      setEdges(buildEdgesFromRelations(nodes, next));
       return next;
     });
-  }, [nodes, setEdges]);
-
-  // ---------- React Flow handlers ----------
-  const onConnect = useCallback(async (connection: Connection) => {
-    if (!relationMode) return;
-
-    const sourceId = connection.source!;
-    const targetId = connection.target!;
-    const sourceNode = nodeMap.get(sourceId);
-    const targetNode = nodeMap.get(targetId);
-
-    let viaField: string | undefined;
-    let sCol = activeCollection, tCol = activeCollection;
-
-    if (sourceNode && targetNode) {
-      sCol = (sourceNode.data as any).collection;
-      tCol = (targetNode.data as any).collection;
-      const sDoc = (sourceNode.data as any).doc;
-      const tDoc = (targetNode.data as any).doc;
-      viaField = guessViaField(sDoc, tDoc, sCol, tCol);
-    }
-
-    const fallback = tCol.endsWith("s") ? `${tCol.slice(0, -1)}Id` : `${tCol}Id`;
-    const chosenField = viaField || fallback;
-
-    // Optimistic UI: alleen edge — geen nodes/layout updaten
-    addRelation({ sourceId, targetId, viaField: chosenField });
-
-    try {
-      await persistRelation(sourceId, targetId, chosenField);
-    } catch (e) {
-      console.error("[persistRelation failed]", e);
-      removeRelation(sourceId, targetId);
-      alert("Failed to persist relation. Check console.");
-    }
-  }, [relationMode, nodeMap, activeCollection, addRelation, removeRelation, persistRelation]);
-
-  const onEdgeClick = useCallback(async (_e: any, edge: Edge) => {
-    const [sourceId, targetId] = [edge.source, edge.target];
-    if (!confirm("Delete this relation?")) return;
-
-    const rel = relations.find((r) => r.sourceId === sourceId && r.targetId === targetId);
-    const viaField = rel?.viaField;
-
-    removeRelation(sourceId, targetId);
-
-    try {
-      await clearRelationField(sourceId, viaField);
-    } catch (e) {
-      console.error("[clearRelationField failed]", e);
-      alert("Failed to clear relation field in DB. You may need to refresh.");
-    }
-  }, [relations, removeRelation, clearRelationField]);
+  }, []);
 
   // ---------- Open doc modal ----------
   const openDocFromNode = useCallback((node: Node) => {
@@ -1016,6 +1121,111 @@ export default function App() {
   const onNodeClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
   const onNodeDoubleClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
 
+  // ---------- React Flow handlers ----------
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, [setNodes]);
+
+  const onConnect = useCallback(async (connection: Connection) => {
+    if (!relationMode) return;
+
+    const sourceId = connection.source!;
+    const targetId = connection.target!;
+    const sourceNode = (nodes as Node[]).find(n => n.id === sourceId);
+    const targetNode = (nodes as Node[]).find(n => n.id === targetId);
+
+    let viaField: string | undefined;
+    let sCol = activeCollection, tCol = activeCollection;
+
+    if (sourceNode && targetNode) {
+      sCol = (sourceNode.data as any).collection;
+      tCol = (targetNode.data as any).collection;
+      const sDoc = (sourceNode.data as any).doc;
+      const tDoc = (targetNode.data as any).doc;
+      viaField = guessViaField(sDoc, tDoc, sCol, tCol);
+    }
+
+    const fallback = tCol.endsWith("s") ? `${tCol.slice(0, -1)}Id` : `${tCol}Id`;
+    const chosenField = viaField || fallback;
+
+    // Optimistic UI: voeg edge toe
+    addRelation({ sourceId, targetId, viaField: chosenField });
+
+    // Persist + update bron-doc lokaal zodat JSON meteen klopt
+    try {
+      const { id: tId } = splitNodeId(targetId);
+      await persistRelation(sourceId, targetId, chosenField);
+
+      // update nodes bron-document
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== sourceId) return n;
+          const data: any = n.data ?? {};
+          const doc = { ...(data.doc ?? {}) };
+          doc[chosenField] = { $oid: tId };
+          return { ...n, data: { ...data, doc } };
+        })
+      );
+
+      // update geopende modal (indien dit het bron-doc is)
+      setDocDetail((prev) => {
+        if (!prev) return prev;
+        const myId = idToString((prev as any)._id);
+        const { id: sId } = splitNodeId(sourceId);
+        if (myId !== sId) return prev;
+        const next = { ...prev, [chosenField]: { $oid: tId } };
+        setEditJson(safeStringify(next, 2));
+        return next;
+      });
+    } catch (e) {
+      console.error("[persistRelation failed]", e);
+      removeRelation(sourceId, targetId);
+      alert("Failed to persist relation. Check console.");
+    }
+  }, [relationMode, nodes, activeCollection, addRelation, removeRelation, persistRelation, splitNodeId]);
+
+  const onEdgeClick = useCallback(async (_e: any, edge: Edge) => {
+    const [sourceId, targetId] = [edge.source, edge.target];
+    if (!confirm("Delete this relation?")) return;
+
+    const rel = relations.find((r) => r.sourceId === sourceId && r.targetId === targetId);
+    const viaField = rel?.viaField;
+
+    removeRelation(sourceId, targetId);
+
+    try {
+      await clearRelationField(sourceId, viaField);
+
+      if (viaField) {
+        // update nodes bron-document
+        setNodes((prev) =>
+          prev.map((n) => {
+            if (n.id !== sourceId) return n;
+            const data: any = n.data ?? {};
+            const doc = { ...(data.doc ?? {}) };
+            doc[viaField] = null;
+            return { ...n, data: { ...data, doc } };
+          })
+        );
+
+        // update geopende modal (indien dit het bron-doc is)
+        setDocDetail((prev) => {
+          if (!prev) return prev;
+          const myId = idToString((prev as any)._id);
+          const { id: sId } = splitNodeId(sourceId);
+          if (myId !== sId) return prev;
+          const next: any = { ...prev };
+          next[viaField] = null;
+          setEditJson(safeStringify(next, 2));
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error("[clearRelationField failed]", e);
+      alert("Failed to clear relation field in DB. You may need to refresh.");
+    }
+  }, [relations, removeRelation, clearRelationField, splitNodeId]);
+
   // ---------- Create / Edit / Export / Delete ----------
   async function handleCreateDocument() {
     if (!selected) { setCreateError("Select a connection first."); return; }
@@ -1027,14 +1237,7 @@ export default function App() {
       try { obj = JSON.parse(createJson || "{}"); } catch (e: any) { throw new Error("Invalid JSON: " + e.message); }
       await createDoc(selected._id, activeCollection, db, obj);
       setCreateOpen(false);
-      const docs = await getDocs(selected._id, activeCollection, db, 100);
-      const nodesNew = masonryNodes(docs, activeCollection, 4);
-      const relaxed = relaxColumns(nodesNew, 36);
-      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withNoStubs);
-      setEdges(buildEdgesFromRelations(withNoStubs, relations));
-      setLastTemplateDoc(docs[0] ?? null);
-      setLayoutTick((t) => t + 1);
+      await refreshActiveAfterChange();
     } catch (e: any) {
       setCreateError(e.message || "Failed to create document");
     } finally {
@@ -1067,12 +1270,14 @@ export default function App() {
 
       const saved = await updateDoc(selected._id, activeCollection, db, idStr, obj);
 
-      const docs = await getDocs(selected._id, activeCollection, db, 100);
-      const nodesNew = masonryNodes(docs, activeCollection, 4);
-      const relaxed = relaxColumns(nodesNew, 36);
-      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withNoStubs);
-      setEdges(buildEdgesFromRelations(withNoStubs, relations));
+      // update in nodes (zodat JSON/preview meteen updaten)
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (!n.id.endsWith(`:${idStr}`)) return n;
+          const data: any = n.data ?? {};
+          return { ...n, data: { ...data, doc: saved } };
+        })
+      );
 
       setDocDetail(saved);
       setIsEditing(false);
@@ -1108,19 +1313,18 @@ export default function App() {
       const idStr = idToString((docDetail as any)._id);
       await deleteDoc(selected._id, activeCollection, db, idStr);
       setDocDetail(null);
-      const docs = await getDocs(selected._id, activeCollection, db, 100);
-      const nodesNew = masonryNodes(docs, activeCollection, 4);
-      const relaxed = relaxColumns(nodesNew, 36);
-      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withNoStubs);
-      setEdges(buildEdgesFromRelations(withNoStubs, relations));
-      setLastTemplateDoc(docs[0] ?? null);
-      setLayoutTick((t) => t + 1);
+      await refreshActiveAfterChange();
     } catch (e: any) {
       alert(e.message || "Delete failed");
     }
   }
 
+  // ======= UI: LIST rows built from current nodes (respecting hidden) =======
+  const listRows = useMemo(() => {
+    return (nodes as Node[]).filter(n => !n.hidden);
+  }, [nodes]);
+
+  // ======= RENDER =======
   return (
     <div className="container-fluid vh-100">
       <Row className="h-100">
@@ -1239,37 +1443,193 @@ export default function App() {
                       {relationMode ? "Stop relating" : "Create relation"}
                     </ToggleButton>
 
+                    {/* View mode switch */}
+                    <ButtonGroup size="sm">
+                      <Button
+                        variant={viewMode === "list" ? "primary" : "outline-secondary"}
+                        onClick={() => setViewMode("list")}
+                        title="List view"
+                      >
+                        <LayoutGrid size={14} className="me-1" /> List
+                      </Button>
+                      <Button
+                        variant={viewMode === "canvas" ? "primary" : "outline-secondary"}
+                        onClick={() => setViewMode("canvas")}
+                        title="Canvas view"
+                      >
+                        <GalleryHorizontalEnd size={14} className="me-1" /> Canvas
+                      </Button>
+                    </ButtonGroup>
+
                     <Button variant="outline-secondary" size="sm">
                       <Settings size={14} className="me-1" /> Settings
                     </Button>
                   </div>
                 </div>
               </Card.Header>
+
+              {/* BODY */}
               <Card.Body className="p-0">
-                <div style={{ height: "72vh" }} className="border rounded-bottom overflow-hidden">
-                  <ReactFlow
-                    key={`${selected?._id ?? "mock"}:${activeCollection}`}
-                    nodeTypes={nodeTypes}
-                    nodes={filteredNodes}
-                    edges={edges}
-                    onNodesChange={onNodesChange}
-                    onEdgesChange={onEdgesChange}
-                    onEdgeClick={onEdgeClick}
-                    onConnect={onConnect}
-                    onNodeClick={onNodeClick}
-                    onNodeDoubleClick={onNodeDoubleClick}
-                    defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-                    minZoom={0.2}
-                    maxZoom={1.5}
-                    onInit={(inst) => {
-                      setRf(inst);
-                    }}
-                  >
-                    <MiniMap pannable zoomable />
-                    <Controls />
-                    <Background gap={24} />
-                  </ReactFlow>
-                </div>
+                {/* LIST VIEW */}
+                {viewMode === "list" && (
+                  <div className="p-2">
+                    {/* Actionbar */}
+                    <div className="d-flex align-items-center justify-content-between p-2 pb-3">
+                      <div className="d-flex gap-2 align-items-center">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={!selectedRowIds.size}
+                          onClick={() => {
+                            const items = (listRows as Node[])
+                              .filter(n => selectedRowIds.has(n.id))
+                              .map(nodeToItem)
+                              .filter(Boolean) as {id: string; collection: string; doc: any}[];
+                            addItemsToCanvas(items);
+                          }}
+                        >
+                          Add selected to canvas ({selectedRowIds.size})
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline-secondary"
+                          onClick={() => setViewMode("canvas")}
+                        >
+                          Open canvas
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline-secondary"
+                          onClick={() => setSelectedRowIds(new Set())}
+                          disabled={!selectedRowIds.size}
+                        >
+                          Clear selection
+                        </Button>
+                      </div>
+                      <div className="small text-muted">
+                        Canvas: <strong>{canvasPool.size}</strong> item(s)
+                        {canvasPool.size ? (
+                          <>
+                            {" · "}
+                            <Button size="sm" variant="link" onClick={clearCanvas}>clear</Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Table */}
+                    <div style={{ maxHeight: "72vh", overflow: "auto" }}>
+                      <Table hover responsive size="sm" className="align-middle">
+                        <thead className="table-light">
+                          <tr>
+                            <th style={{width:'1%'}}><Form.Check disabled /></th>
+                            <th style={{width:'25%'}}>Document</th>
+                            <th>Preview</th>
+                            <th style={{width:'1%'}}>Rel</th>
+                            <th style={{width:'1%'}}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(listRows as Node[]).map(n => {
+                            const data: any = n.data ?? {};
+                            const doc = data.doc ?? {};
+                            const nodeId = n.id;
+                            const title = doc.name ?? doc.title ?? doc.email ?? data._id ?? nodeId.split(":")[1];
+                            const preview = JSON.stringify(
+                              Object.fromEntries(Object.entries(doc).filter(([k]) => k !== '_id').slice(0, 3))
+                            );
+                            const checked = selectedRowIds.has(nodeId);
+                            const sum = relSummary[nodeId];
+
+                            return (
+                              <tr key={nodeId}>
+                                <td>
+                                  <Form.Check
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const next = new Set(selectedRowIds);
+                                      if (e.currentTarget.checked) next.add(nodeId); else next.delete(nodeId);
+                                      setSelectedRowIds(next);
+                                    }}
+                                  />
+                                </td>
+                                <td className="text-truncate">
+                                  <code className="me-1">{data.collection}</code>
+                                  {title}
+                                  <div className="small text-muted">{nodeId}</div>
+                                </td>
+                                <td className="text-truncate">
+                                  <span className="text-muted">{preview}</span>
+                                </td>
+                                <td>
+                                  <span className="badge bg-light text-dark">{sum?.total ?? 0}</span>
+                                </td>
+                                <td>
+                                  <div className="btn-group btn-group-sm">
+                                    <Button
+                                      variant="outline-secondary"
+                                      onClick={() => {
+                                        const it = nodeToItem(n);
+                                        if (it) addItemsToCanvas([it]);
+                                      }}
+                                    >
+                                      Add to canvas
+                                    </Button>
+                                    <Button
+                                      variant="outline-secondary"
+                                      onClick={() => openDocFromNode(n)}
+                                    >
+                                      Open
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* CANVAS VIEW */}
+                {viewMode === "canvas" && (
+                  <div style={{ height: "72vh" }} className="border rounded-bottom overflow-hidden">
+                    <ReactFlow
+                      key={`${selected?._id ?? "mock"}:${activeCollection}:canvas`}
+                      nodeTypes={nodeTypes}
+                      autoPanOnNodeDrag={false}
+                      panOnDrag
+                      zoomOnScroll={!dragging}
+                      panOnScroll={!dragging}
+                      zoomOnPinch={!dragging}
+                      nodes={nodes}
+                      edges={edges}
+                      onNodesChange={onNodesChange}
+                      nodesDraggable
+                      onNodeClick={onNodeClick}
+                      onNodeDoubleClick={onNodeDoubleClick}
+                      onConnect={onConnect}
+                      onEdgeClick={onEdgeClick}
+                      onNodeDragStart={onNodeDragStart}
+                      onNodeDragStop={onNodeDragStop}
+                      defaultViewport={{ x: 0, y: 0, zoom: 0.65 }}
+                      minZoom={0.2}
+                      maxZoom={1.5}
+                      onInit={(inst) => {
+                        setRf(inst);
+                        // als we al een fit “in de wacht” hebben staan, doe ‘m na mount
+                        if (pendingFitRef.current) {
+                          requestAnimationFrame(() => fitToNodes());
+                        }
+                      }}
+                    >
+                      <MiniMap pannable zoomable />
+                      <Controls />
+                      <Background gap={24} />
+                    </ReactFlow>
+                  </div>
+                )}
               </Card.Body>
             </Card>
           </div>
