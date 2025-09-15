@@ -8,97 +8,103 @@ HOST          := 127.0.0.1
 FRONTEND_PORT := 5173
 BACKEND_PORT  := 8000
 
-# Project root als absoluut pad
-ROOT_DIR := $(CURDIR)
-
-# Directories voor PID's en logs (absolute paden)
-PID_DIR  := $(ROOT_DIR)/.pids
-LOG_DIR  := $(ROOT_DIR)/logs
-
-# Bestanden (absolute paden)
-BACKEND_PID := $(PID_DIR)/laravel.pid
-FRONTEND_PID := $(PID_DIR)/vite.pid
-BACKEND_LOG := $(LOG_DIR)/backend.log
-FRONTEND_LOG := $(LOG_DIR)/frontend.log
-
-# Vite leest VITE_* env bij start
+# Vite reads VITE_* env at start in.
 export VITE_API_URL := http://$(HOST):$(BACKEND_PORT)
 
-.PHONY: install dev frontend backend stop status logs clean-logs build backend-key migrate fresh seed
+# ==== Paths (absolute so subshell cd's don't matter) ====
+PID_DIR := $(abspath .pids)
+LOG_DIR := $(abspath .logs)
+
+# ==== Helpers ====
+.PHONY: install dev frontend backend stop build backend-key migrate fresh seed status logs clean-logs
 
 install:
+	@mkdir -p $(PID_DIR) $(LOG_DIR)
 	@echo "→ Installing backend deps (composer)…"
 	cd $(BACKEND_DIR) && composer install
 	@echo "→ Installing frontend deps (npm)…"
 	cd $(FRONTEND_DIR) && npm install
+	@echo "✓ Install complete."
 
-# Start beide processen in de achtergrond, logs naar files, PID's naar .pids
+# Dev: start beide processen met vaste poorten + stille logs + PID files
 dev:
-	@mkdir -p "$(PID_DIR)" "$(LOG_DIR)"
+	@mkdir -p $(PID_DIR) $(LOG_DIR)
 	@echo "▶ Starting backend (Laravel $(BACKEND_PORT)) …"
-	@cd "$(BACKEND_DIR)" && nohup php artisan serve --host=$(HOST) --port=$(BACKEND_PORT) > "$(BACKEND_LOG)" 2>&1 & echo $$! > "$(BACKEND_PID)"
-	@echo "  → backend pid: $$(cat "$(BACKEND_PID)")  | log: $(BACKEND_LOG)"
-	@echo "▶ Starting frontend (Vite $(FRONTEND_PORT)) …"
-	@cd "$(FRONTEND_DIR)" && nohup npm run dev -- --host --port $(FRONTEND_PORT) > "$(FRONTEND_LOG)" 2>&1 & echo $$! > "$(FRONTEND_PID)"
-	@echo "  → frontend pid: $$(cat "$(FRONTEND_PID)") | log: $(FRONTEND_LOG)"
-	@echo ""
-	@echo "✅ Dev servers running."
-	@echo "   Frontend: http://$(HOST):$(FRONTEND_PORT)"
-	@echo "   Backend : http://$(HOST):$(BACKEND_PORT)"
-	@echo ""
-	@echo "ℹ️  View logs:   make logs"
-	@echo "ℹ️  Stop all:    make stop"
+	@set -euo pipefail; \
+	( cd $(BACKEND_DIR) && \
+	  php artisan serve --host=$(HOST) --port=$(BACKEND_PORT) \
+	    >"$(LOG_DIR)/laravel.log" 2>&1 & echo $$! >"$(PID_DIR)/laravel.pid" ); \
+	sleep 0.3; \
+	echo "▶ Starting frontend (Vite $(FRONTEND_PORT)) …"; \
+	( cd $(FRONTEND_DIR) && \
+	  npm run dev -- --host --port $(FRONTEND_PORT) --strictPort \
+	    >"$(LOG_DIR)/vite.log" 2>&1 & echo $$! >"$(PID_DIR)/vite.pid" ); \
+	echo ""; \
+	echo "→ Backend:  http://$(HOST):$(BACKEND_PORT)   (logs: $(LOG_DIR)/laravel.log)"; \
+	echo "→ Frontend: http://$(HOST):$(FRONTEND_PORT) (logs: $(LOG_DIR)/vite.log)"; \
+	echo "Press Ctrl+C to stop (or run: make stop)"; \
+	trap ' \
+	  echo; echo "⏹  Stopping dev servers…"; \
+	  ( test -f "$(PID_DIR)/laravel.pid" && kill $$(cat "$(PID_DIR)/laravel.pid") 2>/dev/null || true ); \
+	  ( test -f "$(PID_DIR)/vite.pid"    && kill $$(cat "$(PID_DIR)/vite.pid")    2>/dev/null || true ); \
+	  rm -f "$(PID_DIR)/laravel.pid" "$(PID_DIR)/vite.pid"; \
+	' INT TERM; \
+	wait
 
-# Los starten (handig voor debug)
+# Los starten (met vaste poorten)
 backend:
-	cd "$(BACKEND_DIR)" && php artisan serve --host=$(HOST) --port=$(BACKEND_PORT)
+	mkdir -p $(PID_DIR) $(LOG_DIR)
+	cd $(BACKEND_DIR) && php artisan serve --host=$(HOST) --port=$(BACKEND_PORT)
 
 frontend:
-	cd "$(FRONTEND_DIR)" && npm run dev -- --host --port $(FRONTEND_PORT)
-
-# Stoppen op basis van PID files
-stop:
-	@echo "⏹  Stopping dev servers…"
-	@if [ -f "$(FRONTEND_PID)" ]; then \
-	  PID=$$(cat "$(FRONTEND_PID)"); \
-	  echo " - killing frontend (pid $$PID)"; \
-	  kill $$PID 2>/dev/null || true; rm -f "$(FRONTEND_PID)"; \
-	else echo " - frontend not running"; fi
-	@if [ -f "$(BACKEND_PID)" ]; then \
-	  PID=$$(cat "$(BACKEND_PID)"); \
-	  echo " - killing backend  (pid $$PID)"; \
-	  kill $$PID 2>/dev/null || true; rm -f "$(BACKEND_PID)"; \
-	else echo " - backend not running"; fi
-	@echo "✅ Done."
-
-status:
-	@echo "🩺 Status"
-	@if [ -f "$(BACKEND_PID)" ]; then echo " - backend pid:  $$(cat "$(BACKEND_PID)")"; else echo " - backend:  not running"; fi
-	@if [ -f "$(FRONTEND_PID)" ]; then echo " - frontend pid: $$(cat "$(FRONTEND_PID)")"; else echo " - frontend: not running"; fi
-
-logs:
-	@mkdir -p "$(LOG_DIR)"
-	@echo "🪵 Tailing logs (Ctrl-C to exit)…"
-	@touch "$(BACKEND_LOG)" "$(FRONTEND_LOG)"
-	@tail -n 50 -f "$(BACKEND_LOG)" "$(FRONTEND_LOG)"
-
-clean-logs:
-	@rm -f "$(BACKEND_LOG)" "$(FRONTEND_LOG)"
-	@echo "🧹 Logs removed."
+	mkdir -p $(PID_DIR) $(LOG_DIR)
+	cd $(FRONTEND_DIR) && npm run dev -- --host=$(HOST) --port=$(FRONTEND_PORT) --strictPort
 
 # Prod build (frontend)
 build:
-	cd "$(FRONTEND_DIR)" && npm run build
+	cd $(FRONTEND_DIR) && npm run build
 
-# Laravel helpers
+# Laravel QoL
 backend-key:
-	cd "$(BACKEND_DIR)" && php artisan key:generate
-
+	cd $(BACKEND_DIR) && php artisan key:generate
 migrate:
-	cd "$(BACKEND_DIR)" && php artisan migrate
-
+	cd $(BACKEND_DIR) && php artisan migrate
 fresh:
-	cd "$(BACKEND_DIR)" && php artisan migrate:fresh --seed
-
+	cd $(BACKEND_DIR) && php artisan migrate:fresh --seed
 seed:
-	cd "$(BACKEND_DIR)" && php artisan db:seed
+	cd $(BACKEND_DIR) && php artisan db:seed
+
+# Proces status
+status:
+	@echo "— Status —"
+	@printf "Backend PID:  "; (test -f "$(PID_DIR)/laravel.pid" && cat "$(PID_DIR)/laravel.pid" || echo "(none)")
+	@printf "Frontend PID: "; (test -f "$(PID_DIR)/vite.pid"    && cat "$(PID_DIR)/vite.pid"    || echo "(none)")
+	@echo
+	@echo "Listening ports:"
+	@-command -v lsof >/dev/null 2>&1 && lsof -iTCP -sTCP:LISTEN -nP | egrep ':($(BACKEND_PORT)|$(FRONTEND_PORT))\b' || echo "lsof not available"
+
+# Logs
+logs:
+	@echo "— Tail logs — (Ctrl-C to stop)"
+	@mkdir -p $(LOG_DIR)
+	@touch "$(LOG_DIR)/laravel.log" "$(LOG_DIR)/vite.log"
+	@tail -n +1 -f "$(LOG_DIR)/laravel.log" "$(LOG_DIR)/vite.log"
+
+clean-logs:
+	@rm -f "$(LOG_DIR)/laravel.log" "$(LOG_DIR)/vite.log"
+	@echo "✓ Logs cleared."
+
+stop:
+	@echo "⏹ Stopping dev servers…"
+	-@[ -f "$(PID_DIR)/laravel.pid" ] && kill -TERM `cat "$(PID_DIR)/laravel.pid"` 2>/dev/null || true
+	-@[ -f "$(PID_DIR)/vite.pid" ]    && kill -TERM `cat "$(PID_DIR)/vite.pid"`    2>/dev/null || true
+	-@pkill -f "php artisan serve --host=$(HOST) --port=$(BACKEND_PORT)" 2>/dev/null || true
+	-@pkill -f "vite.*$(FRONTEND_DIR)" 2>/dev/null || true
+	-@command -v lsof >/dev/null 2>&1 && lsof -ti tcp:$(BACKEND_PORT)  | xargs -r kill -TERM || true
+	-@command -v lsof >/dev/null 2>&1 && lsof -ti tcp:$(FRONTEND_PORT) | xargs -r kill -TERM || true
+	-@rm -f "$(PID_DIR)/laravel.pid" "$(PID_DIR)/vite.pid"
+	@echo "✓ Stopped."
+	# Restart (stop + dev)
+	
+# Restart (stop + dev)
+restart: stop dev
