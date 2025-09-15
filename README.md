@@ -1,4 +1,3 @@
-# MongoDB MyAdmin
 
 ![Demo](./screenshots/MongodbAdminLogo.gif)
 
