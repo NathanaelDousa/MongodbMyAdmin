@@ -34,8 +34,8 @@ Built with **Laravel** (API backend) and **React + Vite** (frontend).
 Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/yourname/mongodb-myadmin.git
-cd mongodb-myadmin
+git clone https://github.com/NathanaelDousa/MongodbMyAdmin
+cd MongodbMyAdmin
 make install
 ```
 ## Development
@@ -59,8 +59,25 @@ make stop
 ```bash
 make build
 ```
+## Make Commands
+| Command                     | Description                                                        |
+|-----------------------------|--------------------------------------------------------------------|
+| `make install`               | Install dependencies (composer + npm) |
+| `make dev`       | Run backend + frontend with logs and PID tracking. |
+| `make stop`     | Stop backend and frontend processes. |
+| `make restart` | Stop and immediately restart both servers. |
+| `make backend `         | Run only the Laravel backend. |
+| `make frontend`     | Run only the Vite frontend. |
+| `make build`   | Build frontend for production. |
+| `make backend-key`| Generate Laravel app key. |
+| `make migrate`| Run Laravel migrations. |
+| `make fresh`| Fresh migrate with seeding. |
+| `make seed`| Seed the database. |
+| `make status`| Show running PIDs and open ports. |
+| `make logs`| Tail both backend and frontend logs. |
+| `make clean-logs`| Clear stored log files. |
 
-This builds the frontend into static assets.
+
 
 ## Screenshots
 Setup:
