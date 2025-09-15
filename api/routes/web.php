@@ -6,7 +6,7 @@ use App\Http\Controllers\{ ConnectionsController, DataController };
 // Healthcheck (mag onder web blijven)
 Route::get('/ping', fn () => ['pong' => true]);
 
-// ✅ JSON endpoints: GEEN 'web' middleware, WEL 'api' middleware
+
 Route::withoutMiddleware([
     'web',
     \App\Http\Middleware\VerifyCsrfToken::class,
@@ -17,9 +17,13 @@ Route::withoutMiddleware([
 ])->middleware('api')->group(function () {
 
     // Connections
-    Route::get ('/connections',            [ConnectionsController::class, 'index']);
-    Route::post('/connections',            [ConnectionsController::class, 'store']);
-    Route::post('/connections/{id}/test',  [ConnectionsController::class, 'test']);
+// Connections
+Route::get   ('/connections',            [ConnectionsController::class, 'index']);
+Route::post  ('/connections',            [ConnectionsController::class, 'store']);
+Route::get   ('/connections/{id}',       [ConnectionsController::class, 'show']);   // <-- add
+Route::patch ('/connections/{id}',       [ConnectionsController::class, 'update']);
+Route::delete('/connections/{id}',       [ConnectionsController::class, 'destroy']);
+Route::post  ('/connections/{id}/test',  [ConnectionsController::class, 'test']);
 
     // Data
     Route::get ('/collections',                    [DataController::class, 'collections']);
@@ -28,4 +32,9 @@ Route::withoutMiddleware([
     Route::post('/collections/{name}/docs',        [DataController::class, 'create']);
     Route::patch('/collections/{name}/docs/{id}',  [DataController::class, 'update']);
     Route::delete('/collections/{name}/docs/{id}', [DataController::class, 'destroy']);
+    //Route::post('/collections', [DataController::class, 'createCollection']);
+
+    Route::post('/collections/_create', [DataController::class, 'createCollection']);
+    Route::post('/collections/_rename', [DataController::class, 'renameCollection']);
+    Route::delete('/collections/{name}', [DataController::class, 'dropCollection']);
 });

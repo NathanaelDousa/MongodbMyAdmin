@@ -193,6 +193,7 @@ async function updateDoc(
   );
 }
 
+
 // ============================================================
 // Helpers (Mongo Extended JSON → display-safe)
 // ============================================================
@@ -205,6 +206,47 @@ function idToString(id: any): string {
     try { return String(id); } catch { return "[ObjectId]"; }
   }
   return String(id);
+}
+// ---- Collections admin ----
+export async function createCollection(
+  profileId: string,
+  db: string,
+  name: string,
+  options?: { capped?: boolean; size?: number; max?: number }
+) {
+  const params = new URLSearchParams({ profile: profileId, db });
+  return api(`/collections/_create?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, options }),
+  });
+}
+
+async function renameCollection(profileId: string, db: string, from: string, to: string) {
+  const params = new URLSearchParams({ profile: profileId, db });
+  return api<{ ok: boolean }>(`/collections/_rename?${params.toString()}`, {   // <-- .toString()
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+async function dropCollection(profileId: string, db: string, name: string) {
+  const params = new URLSearchParams({ profile: profileId, db });
+  return api<{ ok: boolean }>(`/collections/${encodeURIComponent(name)}?${params.toString()}`, { // <-- .toString()
+    method: "DELETE",
+  });
+}
+// ---- Profiles admin (optioneel; pas aan aan je backend) ----
+async function updateConnectionProfile(id: string, payload: Partial<ConnectionProfile>) {
+  return api<ConnectionProfile>(`/connections/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+async function deleteConnectionProfile(id: string) {
+  return api<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" });
 }
 
 function normalizeForDisplay(value: any): any {
@@ -485,7 +527,316 @@ function masonryNodes(docs: MongoDocument[], collection: string, cols = 4): Node
 
   return nodes;
 }
+  function SettingsModal({
+  show,
+  onClose,
+  profiles,
+  onProfileUpdated,
+  onProfileDeleted,
+  selected,
+  db,
+  collections,
+  onCollectionsChanged,
+  onPrefsChange,
+  prefs,
+}: {
+  show: boolean;
+  onClose: () => void;
+  profiles: ConnectionProfile[];
+  onProfileUpdated: (p: ConnectionProfile) => void;
+  onProfileDeleted: (id: string) => void;
+  selected: ConnectionProfile | null;
+  db?: string;
+  collections: Collection[];
+  onCollectionsChanged: () => void;
+  onPrefsChange: (next: typeof prefs) => void;
+  prefs: { theme: "light" | "dark"; defaultView: ViewMode; autoFit: boolean; gridGap: number };
+}) {
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
 
+  const [renFrom, setRenFrom] = useState("");
+  const [renTo, setRenTo] = useState("");
+  const [dropping, setDropping] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState<ConnectionProfile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDefaultDb, setEditDefaultDb] = useState("");
+
+  useEffect(() => {
+    if (!editing) return;
+    setEditName(editing.name);
+    setEditDefaultDb(editing.defaultDatabase || "");
+  }, [editing]);
+
+  const canDbActions = !!(selected && db);
+
+  async function handleCreateCollection() {
+    if (!selected || !db) return;
+    if (!newName.trim()) return;
+    try {
+      setCreating(true); setErr(null);
+      await createCollection(selected._id, db, newName.trim());
+      setNewName("");
+      onCollectionsChanged();
+    } catch (e: any) {
+      setErr(e.message || "Failed to create collection");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRenameCollection() {
+    if (!selected || !db) return;
+    if (!renFrom || !renTo || renFrom === renTo) return;
+    try {
+      setErr(null);
+      await renameCollection(selected._id, db, renFrom, renTo);
+      setRenFrom(""); setRenTo("");
+      onCollectionsChanged();
+    } catch (e: any) {
+      setErr(e.message || "Failed to rename collection");
+    }
+  }
+
+  async function handleDropCollection(name: string) {
+    if (!selected || !db) return;
+    if (!confirm(`Drop collection "${name}"? This cannot be undone.`)) return;
+    try {
+      setDropping(name); setErr(null);
+      await dropCollection(selected._id, db, name);
+      onCollectionsChanged();
+    } catch (e: any) {
+      setErr(e.message || "Failed to drop collection");
+    } finally {
+      setDropping(null);
+    }
+  }
+
+  async function handleSaveProfile() {
+    if (!editing) return;
+    try {
+      const updated = await updateConnectionProfile(editing._id, {
+        name: editName,
+        defaultDatabase: editDefaultDb || undefined,
+      });
+      onProfileUpdated(updated);
+      setEditing(null);
+    } catch (e: any) {
+      setErr(e.message || "Failed to update profile");
+    }
+  }
+  async function handleDeleteProfile(id: string) {
+    if (!confirm("Delete this connection profile?")) return;
+    try {
+      await deleteConnectionProfile(id);
+      onProfileDeleted(id);
+    } catch (e: any) {
+      setErr(e.message || "Failed to delete profile");
+    }
+  }
+
+  return (
+    <Modal show={show} onHide={onClose} size="lg" centered>
+      <Modal.Header closeButton><Modal.Title>Settings</Modal.Title></Modal.Header>
+      <Modal.Body>
+        {err && <Alert variant="danger" className="mb-3">{err}</Alert>}
+
+        <Tab.Container defaultActiveKey="profiles"   mountOnEnter
+  unmountOnExit>
+          <Nav variant="tabs">
+            <Nav.Item><Nav.Link eventKey="profiles">Profiles</Nav.Link></Nav.Item>
+            <Nav.Item><Nav.Link eventKey="app">App</Nav.Link></Nav.Item>
+            <Nav.Item><Nav.Link eventKey="database" disabled={!canDbActions}>Database</Nav.Link></Nav.Item>
+          </Nav>
+
+          <Tab.Content className="border border-top-0 rounded-bottom p-3" style={{ maxHeight: 480, overflow: "auto" }}>
+            {/* Profiles */}
+            <Tab.Pane eventKey="profiles">
+              {!profiles.length ? (
+                <div className="text-muted">No profiles yet.</div>
+              ) : (
+                <Table hover size="sm" className="align-middle">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Engine</th>
+                      <th>Default DB</th>
+                      <th style={{width: 220}}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profiles.map(p => (
+                      <tr key={p._id}>
+                        <td>{p.name}{selected?._id === p._id && <span className="ms-2 badge bg-success">active</span>}</td>
+                        <td><span className="badge bg-light text-dark">{p.engine}</span></td>
+                        <td><code>{p.defaultDatabase || "-"}</code></td>
+                        <td>
+                          <div className="btn-group btn-group-sm">
+                            <Button variant="outline-secondary" onClick={() => setEditing(p)}>Edit</Button>
+                            <Button variant="outline-danger" onClick={() => handleDeleteProfile(p._id)}>Delete</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+
+              {editing && (
+                <Card className="mt-3">
+                  <Card.Header className="py-2"><strong>Edit profile</strong></Card.Header>
+                  <Card.Body className="d-grid gap-2">
+                    <Form.Group>
+                      <Form.Label>Name</Form.Label>
+                      <Form.Control value={editName} onChange={(e) => setEditName(e.target.value)} />
+                    </Form.Group>
+                    <Form.Group>
+                      <Form.Label>Default database</Form.Label>
+                      <Form.Control value={editDefaultDb} onChange={(e) => setEditDefaultDb(e.target.value)} />
+                    </Form.Group>
+                    <div className="d-flex gap-2">
+                      <Button onClick={handleSaveProfile}>Save</Button>
+                      <Button variant="light" onClick={() => setEditing(null)}>Cancel</Button>
+                    </div>
+                  </Card.Body>
+                </Card>
+              )}
+            </Tab.Pane>
+
+            {/* App */}
+            <Tab.Pane eventKey="app" className="d-grid gap-3">
+              <Form.Group>
+                <Form.Label>Theme</Form.Label>
+                <div className="d-flex gap-2">
+                  <ToggleButton
+                    id="theme-light" type="radio" size="sm"
+                    variant={prefs.theme === "light" ? "primary" : "outline-secondary"}
+                    checked={prefs.theme === "light"} value="light"
+                    onChange={() => onPrefsChange({ ...prefs, theme: "light" })}
+                  >Light</ToggleButton>
+                  <ToggleButton
+                    id="theme-dark" type="radio" size="sm"
+                    variant={prefs.theme === "dark" ? "primary" : "outline-secondary"}
+                    checked={prefs.theme === "dark"} value="dark"
+                    onChange={() => onPrefsChange({ ...prefs, theme: "dark" })}
+                  >Dark</ToggleButton>
+                </div>
+              </Form.Group>
+
+              <Form.Group>
+                <Form.Label>Default view</Form.Label>
+                <div className="d-flex gap-2">
+                  <ToggleButton
+                    id="view-list" type="radio" size="sm"
+                    variant={prefs.defaultView === "list" ? "primary" : "outline-secondary"}
+                    checked={prefs.defaultView === "list"} value="list"
+                    onChange={() => onPrefsChange({ ...prefs, defaultView: "list" })}
+                  >List</ToggleButton>
+                  <ToggleButton
+                    id="view-canvas" type="radio" size="sm"
+                    variant={prefs.defaultView === "canvas" ? "primary" : "outline-secondary"}
+                    checked={prefs.defaultView === "canvas"} value="canvas"
+                    onChange={() => onPrefsChange({ ...prefs, defaultView: "canvas" })}
+                  >Canvas</ToggleButton>
+                </div>
+              </Form.Group>
+
+              <Form.Group>
+                <Form.Label>Canvas grid gap</Form.Label>
+                <Form.Range min={8} max={48} step={1} value={prefs.gridGap}
+                  onChange={(e) => onPrefsChange({ ...prefs, gridGap: Number(e.currentTarget.value) })} />
+                <div className="small text-muted">Current: <strong>{prefs.gridGap}px</strong></div>
+              </Form.Group>
+
+              <div>
+                <Button
+                  variant="outline-danger"
+                  onClick={() => {
+                    if (!confirm("Clear local cache (layout, history, relations, canvas pool)?")) return;
+                    localStorage.removeItem("mv_profile_id");
+                    localStorage.removeItem("mv_profile_db");
+                    localStorage.removeItem("mv_canvas_pool:v1");
+                    localStorage.removeItem("mv_relations:v1");
+                    Object.keys(localStorage).filter(k => k.startsWith("mv_hist:")).forEach(k => localStorage.removeItem(k));
+                    alert("Cleared local cache.");
+                  }}
+                >
+                  Clear local cache
+                </Button>
+              </div>
+            </Tab.Pane>
+
+            {/* Database */}
+            <Tab.Pane eventKey="database">
+              {!canDbActions ? (
+                <div className="text-muted">Select a connection & database first.</div>
+              ) : (
+                <>
+                  <h6>Create collection</h6>
+                  <div className="d-flex gap-2 align-items-center mb-3 ">
+                    <Form.Control placeholder="collection name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+                    <Button onClick={handleCreateCollection} disabled={creating || !newName.trim()}>
+                      {creating ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
+
+                  <h6>Rename collection</h6>
+                  <div className="d-flex gap-2 align-items-center mb-3">
+                    <Form.Select value={renFrom} onChange={(e) => setRenFrom(e.target.value)} style={{maxWidth: 280}}>
+                      <option value="">Choose collection…</option>
+                      {collections.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </Form.Select>
+                    <span className="mx-1">→</span>
+                    <Form.Control placeholder="new name" value={renTo} onChange={(e) => setRenTo(e.target.value)} />
+                    <Button variant="outline-secondary" onClick={handleRenameCollection} disabled={!renFrom || !renTo || renFrom === renTo}>
+                      Rename
+                    </Button>
+                  </div>
+
+                  <h6 className="mb-2">Collections</h6>
+                  <Table hover size="sm" className="align-middle">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th style={{width: 120}}>Docs</th>
+                        <th style={{width: 140}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {collections.map(c => (
+                        <tr key={c.name}>
+                          <td>{c.name}</td>
+                          <td>{c.count}</td>
+                          <td>
+                            <div className="btn-group btn-group-sm">
+                              <Button variant="outline-secondary" onClick={() => { setRenFrom(c.name); }}>Rename</Button>
+                              <Button
+                                variant="outline-danger"
+                                disabled={dropping === c.name}
+                                onClick={() => handleDropCollection(c.name)}
+                              >
+                                {dropping === c.name ? "Dropping…" : "Drop"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </>
+              )}
+            </Tab.Pane>
+          </Tab.Content>
+        </Tab.Container>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="outline-secondary" onClick={onClose}>Close</Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
 // ============================================================
 // Connection Wizard (Bootstrap)
 // ============================================================
@@ -524,6 +875,7 @@ function ConnectionWizard({
     if (!show) reset();
   }, [show]);
 
+
   async function handleSave() {
     try {
       setSaving(true);
@@ -542,6 +894,7 @@ function ConnectionWizard({
       setSaving(false);
     }
   }
+
 
   async function handleTest() {
     if (!created) return;
@@ -681,22 +1034,36 @@ function walkSchemaRows(obj: any, base = ""): FieldRow[] {
 type ViewMode = "list" | "canvas";
 
 export default function App() {
+  
   // Pan/drag behaviour
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const onNodeDragStart = useCallback(() => setDragging(true), []);
-  const onNodeDragStop  = useCallback(() => setDragging(false), []);
+  const onNodeDragStop = useCallback((_e: any, node: Node) => {
+    setDragging(false);
+    posRef.current.set(node.id, { x: node.position.x, y: node.position.y });
+  }, []);
+  const posRef = useRef<Map<string, {x:number; y:number}>>(new Map());
 
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([]);
   const [selected, setSelected] = useState<ConnectionProfile | null>(null);
   const [db, setDb] = useState<string | undefined>(undefined);
   const [wizardOpen, setWizardOpen] = useState(false);
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appPrefs, setAppPrefs] = useState<{ theme: "light" | "dark"; defaultView: ViewMode; autoFit: boolean; gridGap: number }>({
+    theme: (localStorage.getItem("mv_theme") as any) || "light",
+    defaultView: (localStorage.getItem("mv_default_view") as any) || "list",
+    autoFit: true,
+    gridGap: 24,
+  });
+
   // data
   const [collections, setCollections] = useState<Collection[]>(MOCK_COLLECTIONS);
   const [activeCollection, setActiveCollection] = useState<string>(MOCK_COLLECTIONS[0]?.name ?? "");
   const [query, setQuery] = useState("");
   const [docDetail, setDocDetail] = useState<MongoDocument | null>(null);
+  const [docCollection, setDocCollection] = useState<string | null>(null);
 
   // Create modal state
   const [createOpen, setCreateOpen] = useState(false);
@@ -717,6 +1084,15 @@ export default function App() {
   const pendingFitRef = useRef(false);
   const nodesRef = useRef<Node[]>([]);
   useEffect(() => { nodesRef.current = nodes as Node[]; }, [nodes]);
+
+  // Create Collection modal
+  const [createColOpen, setCreateColOpen] = useState(false);
+  const [colName, setColName] = useState("");
+  const [colCapped, setColCapped] = useState(false);
+  const [colSize, setColSize] = useState<number | ''>('');
+  const [colMax, setColMax] = useState<number | ''>('');
+  const [colCreating, setColCreating] = useState(false);
+  const [colErr, setColErr] = useState<string | null>(null);
 
   // Relations
   const [relations, setRelations] = useState<Relation[]>([]);
@@ -759,6 +1135,12 @@ export default function App() {
     return out;
   }, []);
 
+  const keepPositions = useCallback((arr: Node[]) => {
+  return arr.map(n => {
+    const saved = posRef.current.get(n.id);
+    return saved ? { ...n, position: { ...saved } } : n;
+  });
+  }, []);
   // === GEEN stubs: laat nodes ongemoeid ===
   const ensureRelationCounterparts = useCallback((baseNodes: Node[], _rels: Relation[]) => {
     return baseNodes;
@@ -778,7 +1160,8 @@ export default function App() {
       const nodesNew = masonryNodes(docs, activeCollection, 4);
       const relaxed = relaxColumns(nodesNew, 36);
       const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-      setNodes(withNoStubs);
+      const hydrated = keepPositions(withNoStubs);
+      setNodes(hydrated);
       setLastTemplateDoc(docs[0] ?? null);
 
       // reset one-shot fit en voer hem 1x uit
@@ -854,6 +1237,10 @@ export default function App() {
     if (db) localStorage.setItem("mv_profile_db", db);
     else localStorage.removeItem("mv_profile_db");
   }, [db]);
+    //Theme
+  useEffect(() => {
+    document.documentElement.setAttribute("data-bs-theme", appPrefs.theme);
+  }, [appPrefs.theme]);
 
   // ---------- Load collections when selected/db changes ----------
   useEffect(() => {
@@ -881,7 +1268,8 @@ export default function App() {
       const relaxed = relaxColumns(nodesNew, 36);
       const allRels = loadAllRelations();
       const withNoStubs = ensureRelationCounterparts(relaxed, allRels);
-      setNodes(withNoStubs);
+      const hydrated = keepPositions(withNoStubs);
+      setNodes(hydrated);
       setLastTemplateDoc(docs[0] ?? null);
       setRelations(allRels);
 
@@ -913,6 +1301,7 @@ export default function App() {
       setNodes((prev) => prev.map((n) => ({ ...n, hidden: false })));
       return;
     }
+
     const q = query.toLowerCase();
     setNodes((prev) =>
       prev.map((n) => {
@@ -1003,39 +1392,38 @@ const fitToNodes = useCallback(() => {
   const clearCanvas = () => setCanvasPool(new Map());
 
   // Build canvas nodes from canvasPool (cross-collection)
-  const buildCanvasNodesFromPool = useCallback((): Node[] => {
-    if (!canvasPool.size) return nodes as Node[];
+// 1) Zorg dat deze callback NIET afhangt van `nodes`
+const buildCanvasNodesFromPool = useCallback((): Node[] => {
+  if (!canvasPool.size) return [];
 
-    const groups = new Map<string, MongoDocument[]>();
-    canvasPool.forEach(it => {
-      const arr = groups.get(it.collection) ?? [];
-      arr.push(it.doc);
-      groups.set(it.collection, arr);
-    });
+  const groups = new Map<string, MongoDocument[]>();
+  canvasPool.forEach(it => {
+    const arr = groups.get(it.collection) ?? [];
+    arr.push(it.doc);
+    groups.set(it.collection, arr);
+  });
 
-    const out: Node[] = [];
-    let xOffset = 0;
-    const COLS_PER_GROUP = 2;
-    const GROUP_GAP_X = 120;
+  const out: Node[] = [];
+  let xOffset = 0;
+  const COLS_PER_GROUP = 2;
+  const GROUP_GAP_X = 120;
 
-    for (const [collection, docs] of groups.entries()) {
-      const part = masonryNodes(docs, collection, COLS_PER_GROUP);
-      part.forEach(n => {
-        n.position.x += xOffset;
-      });
-      out.push(...part);
-      xOffset += COLS_PER_GROUP * 280 + GROUP_GAP_X;
-    }
-    return out;
-  }, [canvasPool, nodes]);
-  // put this below buildCanvasNodesFromPool (and above edges memo is fine)
+  for (const [collection, docs] of groups.entries()) {
+    const part = masonryNodes(docs, collection, COLS_PER_GROUP);
+    part.forEach(n => { n.position.x += xOffset; });
+    out.push(...part);
+    xOffset += COLS_PER_GROUP * 280 + GROUP_GAP_X;
+  }
+  return out;
+}, [canvasPool]);
+
+// 2) De useEffect die schakelt tussen list ↔ canvas
 useEffect(() => {
   if (viewMode === "canvas") {
-    // render the canvas pool as the current nodes
     const next = buildCanvasNodesFromPool();
-    setNodes(next);
+    if (next.length) setNodes(next);
 
-    // reset + fit after the canvas & nodes have actually painted
+    // reset + pas na paint centreren
     didInitialFitRef.current = false;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1043,12 +1431,40 @@ useEffect(() => {
       });
     });
   } else {
-    // back to list → restore list layout and do its one-time fit
+    // terug naar list → herladen + 1x fit
     didInitialFitRef.current = false;
     refreshActiveAfterChange();
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [viewMode, buildCanvasNodesFromPool]);
+}, [viewMode, buildCanvasNodesFromPool, fitToNodes, refreshActiveAfterChange]);
+useEffect(() => {
+  setViewMode(appPrefs.defaultView);
+}, [appPrefs.defaultView]);
+  // put this below buildCanvasNodesFromPool (and above edges memo is fine)
+useEffect(() => {
+  if (viewMode === "canvas") {
+    const next = buildCanvasNodesFromPool();
+
+    if (next.length) {
+      setNodes(keepPositions(next));
+    } else {
+      // Fallback: toon de huidige lijst-layout op de canvas
+      // (laadt docs van activeCollection en zet nodes)
+      refreshActiveAfterChange();
+    }
+
+    // reset + pas na paint centreren
+    didInitialFitRef.current = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitToNodes();
+      });
+    });
+  } else {
+    // terug naar list → herladen + 1x fit
+    didInitialFitRef.current = false;
+    refreshActiveAfterChange();
+  }
+}, [viewMode, buildCanvasNodesFromPool, fitToNodes, refreshActiveAfterChange]);
 
   // When switching to canvas, render canvas-pool as current nodes
   useEffect(() => {
@@ -1082,6 +1498,12 @@ useEffect(() => {
     if (didInitialFitRef.current) return;
     fitToNodes();
   }, [nodes, rf, viewMode, fitToNodes]);
+
+  //store preferences in settings
+  useEffect(() => {
+  localStorage.setItem("mv_theme", appPrefs.theme);
+  localStorage.setItem("mv_default_view", appPrefs.defaultView);
+}, [appPrefs]);
 
   // Edges derived from current nodes + relations
   const edges: Edge[] = useMemo(
@@ -1130,28 +1552,35 @@ useEffect(() => {
   }, []);
 
   // ---------- Open doc modal ----------
-  const openDocFromNode = useCallback((node: Node) => {
-    try {
-      const maybe = (node as any)?.data;
-      const doc = maybe?.doc ?? maybe;
-      if (!doc || typeof doc !== "object") return;
-      setDocDetail(doc as MongoDocument);
-      setLastTemplateDoc(doc);
-      setIsEditing(false);
-      setEditJson(safeStringify(doc, 2));
-      const idStr = idToString((doc as any)._id);
-      setDocHistory(loadHistory((maybe?.collection as string) || activeCollection, idStr));
-    } catch (err) {
-      console.error("[openDocFromNode]", err, node);
-    }
-  }, [activeCollection]);
+const openDocFromNode = useCallback((node: Node) => {
+  try {
+    const maybe = (node as any)?.data;
+    const doc = maybe?.doc ?? maybe;
+    if (!doc || typeof doc !== "object") return;
+
+    setDocDetail(doc as MongoDocument);
+    setDocCollection((maybe?.collection as string) || activeCollection); // <— hier
+    setLastTemplateDoc(doc);
+    setIsEditing(false);
+    setEditJson(safeStringify(doc, 2));
+    const idStr = idToString((doc as any)._id);
+    setDocHistory(loadHistory((maybe?.collection as string) || activeCollection, idStr));
+  } catch (err) {
+    console.error("[openDocFromNode]", err, node);
+  }
+}, [activeCollection]);
 
   const onNodeClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
   const onNodeDoubleClick = useCallback((_e: any, node: Node) => openDocFromNode(node), [openDocFromNode]);
 
   // ---------- React Flow handlers ----------
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
+    setNodes((nds) => {
+      const next = applyNodeChanges(changes, nds);
+      // schrijf alle actuele posities weg (lichtgewicht)
+      next.forEach(n => posRef.current.set(n.id, { x: n.position.x, y: n.position.y }));
+      return next;
+    });
   }, [setNodes]);
 
   const onConnect = useCallback(async (connection: Connection) => {
@@ -1273,6 +1702,53 @@ useEffect(() => {
     }
   }
 
+  //create collection
+  async function handleCreateCollection() {
+  if (!selected) { setColErr("Select a connection first."); return; }
+  if (!db) { setColErr("Database is required to create a collection."); return; }
+  const name = (colName || "").trim();
+
+  // simpele validatie
+  if (!name) { setColErr("Collection name is required."); return; }
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    setColErr("Only letters, numbers, dot, underscore and hyphen are allowed.");
+    return;
+  }
+  if (collections.some(c => c.name === name)) {
+    setColErr("Collection already exists.");
+    return;
+  }
+  if (colCapped) {
+    if (!colSize || Number(colSize) <= 0) {
+      setColErr("Capped collections require a positive 'size' (bytes).");
+      return;
+    }
+  }
+
+  try {
+    setColCreating(true);
+    setColErr(null);
+    await createCollection(selected._id, db, name, colCapped ? {
+      capped: true,
+      size: Number(colSize),
+      ...(colMax ? { max: Number(colMax) } : {})
+    } : undefined);
+
+    // refresh sidebar + select de nieuwe
+    const cols = await getCollections(selected._id, db);
+    setCollections(cols);
+    setActiveCollection(name);
+    setCreateColOpen(false);
+
+    // reset modal form
+    setColName(""); setColCapped(false); setColSize(''); setColMax('');
+  } catch (e: any) {
+    setColErr(e.message || "Failed to create collection");
+  } finally {
+    setColCreating(false);
+  }
+}
+
   function handleStartEdit() {
     setIsEditing(true);
     setEditError(null);
@@ -1353,338 +1829,355 @@ useEffect(() => {
   }, [nodes]);
 
   // ======= RENDER =======
-  return (
-    <div className="container-fluid vh-100">
-      <Row className="h-100">
-        {/* Sidebar */}
-        <Col
-          md={3}
-          lg={2}
-          className="border-end d-flex flex-column"
-          style={{ paddingTop: "8px" }}
+const SIDEBAR_W = 156; // px — maak kleiner/groter naar smaak
+
+// ======= RENDER =======
+return (
+  <div
+    className="vh-100 d-flex flex-column"
+    style={{ width: "100%", overflow: "hidden" }}
+  >
+    {/* Pure flex i.p.v. Bootstrap grid */}
+    <div
+      className="d-flex flex-row flex-grow-1"
+      style={{ minHeight: 0, width: "100%", overflow: "hidden" }}
+    >
+      {/* Sidebar — FIXED  */}
+      <aside
+        className="d-flex flex-column border-end"
+        style={{
+          width: SIDEBAR_W,
+          flex: `0 0 ${SIDEBAR_W}px`,
+          paddingTop: 8,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          className="px-2 mb-3 d-flex flex-column align-items-center gap-2"
+          style={{ marginTop: -8 }}
         >
-          <div
-            className="px-2 mb-3 d-flex flex-column align-items-center gap-2"
-            style={{ marginTop: "-8px" }}
-          >
-            <img
-              src={logo}
-              alt="MongoDB MyAdmin"
-              style={{ height: 130, objectFit: "contain" }}
-            />
-          </div>
+          <img
+            src={logo}
+            alt="MongoDB MyAdmin"
+            style={{ width: "100%", maxWidth: SIDEBAR_W - 24, height: "auto", objectFit: "contain" }}
+          />
+        </div>
 
-          <div className="flex-grow-1 overflow-auto pe-2" style={{ paddingBottom: "3rem" }}>
-            {collections.map((c) => (
-              <Button
-                key={c.name}
-                variant={activeCollection === c.name ? "primary" : "light"}
-                className="w-100 d-flex justify-content-between align-items-center mb-2 text-start"
-                onClick={() => setActiveCollection(c.name)}
-              >
-                <span className="text-truncate">{c.name}</span>
-                <small className="opacity-75">{c.count}</small>
+        <div
+          className="flex-grow-1 pe-2"
+          style={{ paddingBottom: "3rem", minHeight: 0, overflow: "auto" }}
+        >
+          {collections.map((c) => (
+            <Button
+              key={c.name}
+              variant={activeCollection === c.name ? "primary" : "outline-secondary"}
+              className="w-100 d-flex justify-content-between align-items-center mb-2 text-start"
+              onClick={() => setActiveCollection(c.name)}
+            >
+              <span className="text-truncate">{c.name}</span>
+              <small className="opacity-75">{c.count}</small>
+            </Button>
+          ))}
+        </div>
+
+      <Button
+        variant="outline-secondary"
+        className="mt-2 mb-3 mx-2"
+        onClick={() => { setColErr(null); setCreateColOpen(true); }}
+      >
+        <Plus size={16} className="me-1" /> New collection
+      </Button>
+      </aside>
+
+      {/* Main — VULT ALLES OVER */}
+      <main
+        className="d-flex flex-column"
+        style={{
+          flex: "1 1 auto",
+          minWidth: 0,
+          width: `calc(100% - ${SIDEBAR_W}px)`,
+          padding: 8,
+          overflow: "hidden",
+        }}
+      >
+        <Card
+          className="shadow-sm d-flex flex-column"
+          style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+        >
+          <Card.Header className="py-2">
+            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <Card.Title as="h6" className="mb-0 d-flex align-items-center gap-2">
+                <ChevronRight size={18} /> {activeCollection}
+                {relationMode && <Badge bg="info" className="ms-2">Relation mode</Badge>}
+              </Card.Title>
+              <div className="d-flex align-items-center gap-2">
+                <Dropdown>
+                  <Dropdown.Toggle size="sm" variant={selected ? "success" : "outline-secondary"}>
+                    {selected ? selected.name : "No connection"}
+                  </Dropdown.Toggle>
+                  <Dropdown.Menu>
+                    {profiles.map((p) => (
+                      <Dropdown.Item
+                        key={p._id}
+                        onClick={() => {
+                          setSelected(p);
+                          if (p.defaultDatabase) setDb(p.defaultDatabase);
+                        }}
+                      >
+                        {p.name}
+                      </Dropdown.Item>
+                    ))}
+                    <Dropdown.Divider />
+                    <Dropdown.Item onClick={() => setWizardOpen(true)}>
+                      + Add connection
+                    </Dropdown.Item>
+                  </Dropdown.Menu>
+                </Dropdown>
+
+                <Form.Control
+                  size="sm"
+                  style={{ width: 160 }}
+                  placeholder="Database (optional)"
+                  value={db || ""}
+                  onChange={(e) => setDb(e.target.value || undefined)}
+                />
+
+                <div className="position-relative">
+                  <Search size={16} className="position-absolute" style={{ left: 8, top: 8, opacity: 0.6 }} />
+                  <Form.Control
+                    style={{ paddingLeft: 28, width: 220 }}
+                    size="sm"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search documents"
+                  />
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCreateError(null);
+                    setCreateJson("{\n  \n}");
+                    setCreateOpen(true);
+                  }}
+                >
+                  <Plus size={14} className="me-1" /> New document
+                </Button>
+
+                <ToggleButton
+                  id="relation-mode"
+                  type="checkbox"
+                  variant={relationMode ? "primary" : "outline-secondary"}
+                  size="sm"
+                  value="1"
+                  checked={relationMode}
+                  onChange={(e) => setRelationMode(e.currentTarget.checked)}
+                  title="Draw an edge between two docs to create a relation"
+                >
+                  {relationMode ? <Unlink size={14} className="me-1" /> : <LinkIcon size={14} className="me-1" />}
+                  {relationMode ? "Stop relating" : "Create relation"}
+                </ToggleButton>
+
+                <ButtonGroup size="sm">
+                  <Button
+                    variant={viewMode === "list" ? "primary" : "outline-secondary"}
+                    onClick={() => setViewMode("list")}
+                    title="List view"
+                  >
+                    <LayoutGrid size={14} className="me-1" /> List
+                  </Button>
+                  <Button
+                    variant={viewMode === "canvas" ? "primary" : "outline-secondary"}
+                    onClick={() => setViewMode("canvas")}
+                    title="Canvas view"
+                  >
+                    <GalleryHorizontalEnd size={14} className="me-1" /> Canvas
+                  </Button>
+                </ButtonGroup>
+
+              <Button variant="outline-secondary" size="sm" onClick={() => setSettingsOpen(true)}>
+                <Settings size={14} className="me-1" /> Settings
               </Button>
-            ))}
-          </div>
+              </div>
+            </div>
+          </Card.Header>
 
-          <Button variant="outline-secondary" className="mt-2 mb-3 mx-2">
-            <Plus size={16} className="me-1" /> New collection
-          </Button>
-        </Col>
-
-        {/* Main panel */}
-        <Col md={9} lg={10} className="position-relative">
-          <div className="p-3">
-            <Card className="shadow-sm">
-              <Card.Header className="py-2">
-                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                  <Card.Title as="h6" className="mb-0 d-flex align-items-center gap-2">
-                    <ChevronRight size={18} /> {activeCollection}
-                    {relationMode && <Badge bg="info" className="ms-2">Relation mode</Badge>}
-                  </Card.Title>
-                  <div className="d-flex align-items-center gap-2">
-                    <Dropdown>
-                      <Dropdown.Toggle size="sm" variant={selected ? "success" : "outline-secondary"}>
-                        {selected ? selected.name : "No connection"}
-                      </Dropdown.Toggle>
-                      <Dropdown.Menu>
-                        {profiles.map((p) => (
-                          <Dropdown.Item
-                            key={p._id}
-                            onClick={() => {
-                              setSelected(p);
-                              if (p.defaultDatabase) setDb(p.defaultDatabase);
-                            }}
-                          >
-                            {p.name}
-                          </Dropdown.Item>
-                        ))}
-                        <Dropdown.Divider />
-                        <Dropdown.Item onClick={() => setWizardOpen(true)}>
-                          + Add connection
-                        </Dropdown.Item>
-                      </Dropdown.Menu>
-                    </Dropdown>
-
-                    <Form.Control
-                      size="sm"
-                      style={{ width: 160 }}
-                      placeholder="Database (optional)"
-                      value={db || ""}
-                      onChange={(e) => setDb(e.target.value || undefined)}
-                    />
-
-                    <div className="position-relative">
-                      <Search size={16} className="position-absolute" style={{ left: 8, top: 8, opacity: 0.6 }} />
-                      <Form.Control
-                        style={{ paddingLeft: 28, width: 220 }}
-                        size="sm"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search documents"
-                      />
-                    </div>
-
+          <Card.Body
+            className="p-0 d-flex flex-column"
+            style={{ minHeight: 0, overflow: "hidden" }}
+          >
+            {/* LIST VIEW */}
+            {viewMode === "list" && (
+              <div className="d-flex flex-column" style={{ padding: 8, minHeight: 0, overflow: "hidden" }}>
+                <div className="d-flex align-items-center justify-content-between pb-3">
+                  <div className="d-flex gap-2 align-items-center">
                     <Button
                       size="sm"
+                      variant="primary"
+                      disabled={!selectedRowIds.size}
                       onClick={() => {
-                        setCreateError(null);
-                        setCreateJson("{\n  \n}");
-                        setCreateOpen(true);
+                        const items = (listRows as Node[])
+                          .filter(n => selectedRowIds.has(n.id))
+                          .map(nodeToItem)
+                          .filter(Boolean) as {id: string; collection: string; doc: any}[];
+                        addItemsToCanvas(items);
                       }}
                     >
-                      <Plus size={14} className="me-1" /> New document
+                      Add selected to canvas ({selectedRowIds.size})
                     </Button>
-
-                    <ToggleButton
-                      id="relation-mode"
-                      type="checkbox"
-                      variant={relationMode ? "primary" : "outline-secondary"}
+                    <Button size="sm" variant="outline-secondary" onClick={() => setViewMode("canvas")}>
+                      Open canvas
+                    </Button>
+                    <Button
                       size="sm"
-                      value="1"
-                      checked={relationMode}
-                      onChange={(e) => setRelationMode(e.currentTarget.checked)}
-                      title="Draw an edge between two docs to create a relation"
+                      variant="outline-secondary"
+                      onClick={() => setSelectedRowIds(new Set())}
+                      disabled={!selectedRowIds.size}
                     >
-                      {relationMode ? <Unlink size={14} className="me-1" /> : <LinkIcon size={14} className="me-1" />}
-                      {relationMode ? "Stop relating" : "Create relation"}
-                    </ToggleButton>
-
-                    {/* View mode switch */}
-                    <ButtonGroup size="sm">
-                      <Button
-                        variant={viewMode === "list" ? "primary" : "outline-secondary"}
-                        onClick={() => setViewMode("list")}
-                        title="List view"
-                      >
-                        <LayoutGrid size={14} className="me-1" /> List
-                      </Button>
-                      <Button
-                        variant={viewMode === "canvas" ? "primary" : "outline-secondary"}
-                        onClick={() => setViewMode("canvas")}
-                        title="Canvas view"
-                      >
-                        <GalleryHorizontalEnd size={14} className="me-1" /> Canvas
-                      </Button>
-                    </ButtonGroup>
-
-                    <Button variant="outline-secondary" size="sm">
-                      <Settings size={14} className="me-1" /> Settings
+                      Clear selection
                     </Button>
+                  </div>
+                  <div className="small text-muted">
+                    Canvas: <strong>{canvasPool.size}</strong> item(s)
+                    {canvasPool.size ? (
+                      <> · <Button size="sm" variant="link" onClick={clearCanvas}>clear</Button></>
+                    ) : null}
                   </div>
                 </div>
-              </Card.Header>
 
-              {/* BODY */}
-              <Card.Body className="p-0">
-                {/* LIST VIEW */}
-                {viewMode === "list" && (
-                  <div className="p-2">
-                    {/* Actionbar */}
-                    <div className="d-flex align-items-center justify-content-between p-2 pb-3">
-                      <div className="d-flex gap-2 align-items-center">
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          disabled={!selectedRowIds.size}
-                          onClick={() => {
-                            const items = (listRows as Node[])
-                              .filter(n => selectedRowIds.has(n.id))
-                              .map(nodeToItem)
-                              .filter(Boolean) as {id: string; collection: string; doc: any}[];
-                            addItemsToCanvas(items);
-                          }}
-                        >
-                          Add selected to canvas ({selectedRowIds.size})
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline-secondary"
-                          onClick={() => setViewMode("canvas")}
-                        >
-                          Open canvas
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline-secondary"
-                          onClick={() => setSelectedRowIds(new Set())}
-                          disabled={!selectedRowIds.size}
-                        >
-                          Clear selection
-                        </Button>
-                      </div>
-                      <div className="small text-muted">
-                        Canvas: <strong>{canvasPool.size}</strong> item(s)
-                        {canvasPool.size ? (
-                          <>
-                            {" · "}
-                            <Button size="sm" variant="link" onClick={clearCanvas}>clear</Button>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
+                {/* ENIGE scroller */}
+                <div style={{ flex: 1, minHeight: 0, overflowX: "auto", overflowY: "auto" }}>
+                  <Table hover responsive={false} size="sm" className="align-middle" style={{ whiteSpace: "nowrap" }}>
+                    <thead className={appPrefs.theme === "dark" ? "table-dark" : "table-light"}>
+                      <tr>
+                        <th style={{width:'1%'}}><Form.Check disabled /></th>
+                        <th style={{width:'25%'}}>Document</th>
+                        <th>Preview</th>
+                        <th style={{width:'1%'}}>Rel</th>
+                        <th style={{width:'1%'}}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(listRows as Node[]).map(n => {
+                        const data: any = n.data ?? {};
+                        const doc = data.doc ?? {};
+                        const nodeId = n.id;
+                        const title = doc.name ?? doc.title ?? doc.email ?? data._id ?? nodeId.split(":")[1];
+                        const preview = JSON.stringify(
+                          Object.fromEntries(Object.entries(doc).filter(([k]) => k !== '_id').slice(0, 3))
+                        );
+                        const checked = selectedRowIds.has(nodeId);
+                        const sum = relSummary[nodeId];
 
-                    {/* Table */}
-                    <div style={{ maxHeight: "72vh", overflow: "auto" }}>
-                      <Table hover responsive size="sm" className="align-middle">
-                        <thead className="table-light">
-                          <tr>
-                            <th style={{width:'1%'}}><Form.Check disabled /></th>
-                            <th style={{width:'25%'}}>Document</th>
-                            <th>Preview</th>
-                            <th style={{width:'1%'}}>Rel</th>
-                            <th style={{width:'1%'}}>Actions</th>
+                        return (
+                          <tr key={nodeId}>
+                            <td>
+                              <Form.Check
+                                checked={checked}
+                                onChange={(e) => {
+                                  const next = new Set(selectedRowIds);
+                                  if (e.currentTarget.checked) next.add(nodeId); else next.delete(nodeId);
+                                  setSelectedRowIds(next);
+                                }}
+                              />
+                            </td>
+                            <td className="text-truncate" style={{maxWidth: 420}}>
+                              <code className="me-1">{data.collection}</code>
+                              {title}
+                              <div className="small text-muted">{nodeId}</div>
+                            </td>
+                            <td className="text-truncate" style={{maxWidth: 800}}>
+                              <span className="text-muted">{preview}</span>
+                            </td>
+                            <td>
+                              <span className="badge bg-light text-dark">{sum?.total ?? 0}</span>
+                            </td>
+                            <td>
+                              <div className="btn-group btn-group-sm">
+                                <Button
+                                  variant="outline-secondary"
+                                  onClick={() => {
+                                    const it = nodeToItem(n);
+                                    if (it) addItemsToCanvas([it]);
+                                  }}
+                                >
+                                  Add to canvas
+                                </Button>
+                                <Button variant="outline-secondary" onClick={() => openDocFromNode(n)}>
+                                  Open
+                                </Button>
+                              </div>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {(listRows as Node[]).map(n => {
-                            const data: any = n.data ?? {};
-                            const doc = data.doc ?? {};
-                            const nodeId = n.id;
-                            const title = doc.name ?? doc.title ?? doc.email ?? data._id ?? nodeId.split(":")[1];
-                            const preview = JSON.stringify(
-                              Object.fromEntries(Object.entries(doc).filter(([k]) => k !== '_id').slice(0, 3))
-                            );
-                            const checked = selectedRowIds.has(nodeId);
-                            const sum = relSummary[nodeId];
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                </div>
+              </div>
+            )}
 
-                            return (
-                              <tr key={nodeId}>
-                                <td>
-                                  <Form.Check
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      const next = new Set(selectedRowIds);
-                                      if (e.currentTarget.checked) next.add(nodeId); else next.delete(nodeId);
-                                      setSelectedRowIds(next);
-                                    }}
-                                  />
-                                </td>
-                                <td className="text-truncate">
-                                  <code className="me-1">{data.collection}</code>
-                                  {title}
-                                  <div className="small text-muted">{nodeId}</div>
-                                </td>
-                                <td className="text-truncate">
-                                  <span className="text-muted">{preview}</span>
-                                </td>
-                                <td>
-                                  <span className="badge bg-light text-dark">{sum?.total ?? 0}</span>
-                                </td>
-                                <td>
-                                  <div className="btn-group btn-group-sm">
-                                    <Button
-                                      variant="outline-secondary"
-                                      onClick={() => {
-                                        const it = nodeToItem(n);
-                                        if (it) addItemsToCanvas([it]);
-                                      }}
-                                    >
-                                      Add to canvas
-                                    </Button>
-                                    <Button
-                                      variant="outline-secondary"
-                                      onClick={() => openDocFromNode(n)}
-                                    >
-                                      Open
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
+            {/* CANVAS VIEW */}
+            {viewMode === "canvas" && (
+              <div ref={canvasWrapRef} style={{ flex: 1, minHeight: 0, color: "black" }} className="overflow-hidden">
+                <ReactFlow
+                  key={`${selected?._id ?? "mock"}:${activeCollection}:canvas`}
+                  nodeTypes={nodeTypes}
+                  autoPanOnNodeDrag={false}
+                  panOnDrag
+                  zoomOnScroll={!dragging}
+                  panOnScroll={!dragging}
+                  zoomOnPinch={!dragging}
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  nodesDraggable
+                  onNodeClick={onNodeClick}
+                  onNodeDoubleClick={onNodeDoubleClick}
+                  onConnect={onConnect}
+                  onEdgeClick={onEdgeClick}
+                  onNodeDragStart={onNodeDragStart}
+                  onNodeDragStop={onNodeDragStop}
+                  defaultViewport={{ x: 0, y: 0, zoom: 0.65 }}
+                  minZoom={0.2}
+                  maxZoom={1.5}
+                  onInit={(inst) => {
+                    setRf(inst);
+                    requestAnimationFrame(() => requestAnimationFrame(() => fitToNodes()));
+                    if (pendingFitRef.current) {
+                      requestAnimationFrame(() => fitToNodes());
+                    }
+                  }}
+                >
+                  <MiniMap pannable zoomable />
+                  <Controls />
+                  <Background gap={24} />
+                </ReactFlow>
+              </div>
+            )}
+          </Card.Body>
+        </Card>
+      </main>
+    </div>
 
-                {/* CANVAS VIEW */}
-                {viewMode === "canvas" && (
-                <div
-                    ref={canvasWrapRef}  // <<< CHANGED: koppelt de ResizeObserver aan dit element
-                    style={{ height: "72vh" }}
-                    className="border rounded-bottom overflow-hidden"
-                  >
-                    <ReactFlow
-                      key={`${selected?._id ?? "mock"}:${activeCollection}:canvas`}
-                      nodeTypes={nodeTypes}
-                      autoPanOnNodeDrag={false}
-                      panOnDrag
-                      zoomOnScroll={!dragging}
-                      panOnScroll={!dragging}
-                      zoomOnPinch={!dragging}
-                      nodes={nodes}
-                      edges={edges}
-                      onNodesChange={onNodesChange}
-                      nodesDraggable
-                      onNodeClick={onNodeClick}
-                      onNodeDoubleClick={onNodeDoubleClick}
-                      onConnect={onConnect}
-                      onEdgeClick={onEdgeClick}
-                      onNodeDragStart={onNodeDragStart}
-                      onNodeDragStop={onNodeDragStop}
-                      defaultViewport={{ x: 0, y: 0, zoom: 0.65 }}
-                      minZoom={0.2}
-                      maxZoom={1.5}
-                      onInit={(inst) => {
-                        setRf(inst);
-                        requestAnimationFrame(() => requestAnimationFrame(() => fitToNodes()));
-                        if (pendingFitRef.current) {
-                          requestAnimationFrame(() => fitToNodes());
-                        }
-                      }}
-                    >
-                      <MiniMap pannable zoomable />
-                      <Controls />
-                      <Background gap={24} />
-                    </ReactFlow>
-                  </div>
-                )}
-              </Card.Body>
-            </Card>
-          </div>
-        </Col>
-      </Row>
-
-      {!selected && (
-        <div
-          style={{
-            position: "fixed",
-            top: 8,
-            right: 8,
-            zIndex: 9999,
-            fontSize: 12,
-            padding: "6px 8px",
-            borderRadius: 8,
-            background: "#e6ffed",
-            border: "1px solid #b7eb8f",
-          }}
-        >
-          Mock mode (no backend)
-        </div>
-      )}
+    {!selected && (
+      <div
+        style={{
+          position: "fixed",
+          top: 8,
+          right: 8,
+          zIndex: 9999,
+          fontSize: 12,
+          padding: "6px 8px",
+          borderRadius: 8,
+          background: "#e6ffed",
+          border: "1px solid #b7eb8f",
+          color: "black"
+        }}
+      >
+        Mock mode (no backend)
+      </div>
+    )}
 
       {/* Document modal */}
       <Modal show={!!docDetail} onHide={() => setDocDetail(null)} size="lg" centered>
@@ -1749,7 +2242,7 @@ useEffect(() => {
                           spellCheck={false}
                         />
                         <Form.Text className="text-muted">
-                          Tip: laat <code>_id</code> intact of gebruik hetzelfde type als je backend verwacht.
+                          Hint: Leave <code>_id</code> intact or use the same type as your backend expects.
                         </Form.Text>
                       </Form.Group>
                     )}
@@ -1810,27 +2303,22 @@ useEffect(() => {
                   <Tab.Pane eventKey="relations" className="small">
                     {docDetail ? (
                       (() => {
-                        const myId = `${activeCollection}:${idToString((docDetail as any)._id)}`;
+                        const myCol = docCollection ?? activeCollection; // <— hier
+                        const myId = `${myCol}:${idToString((docDetail as any)._id)}`;
                         const rels = relations.filter((r) => r.sourceId === myId || r.targetId === myId);
                         if (!rels.length) return <div className="text-muted">No relations.</div>;
                         return (
                           <ul className="list-unstyled mb-0">
-                            {rels.map((r, idx) => {
-                              return (
-                                <li key={idx} className="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
-                                  <div>
-                                    {r.sourceId} → {r.targetId} {r.viaField && <em>({r.viaField})</em>}
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="outline-danger"
-                                    onClick={() => removeRelation(r.sourceId, r.targetId)}
-                                  >
-                                    Unlink
-                                  </Button>
-                                </li>
-                              );
-                            })}
+                            {rels.map((r, idx) => (
+                              <li key={idx} className="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                                <div>
+                                  {r.sourceId} → {r.targetId} {r.viaField && <em>({r.viaField})</em>}
+                                </div>
+                                <Button size="sm" variant="outline-danger" onClick={() => removeRelation(r.sourceId, r.targetId)}>
+                                  Unlink
+                                </Button>
+                              </li>
+                            ))}
                           </ul>
                         );
                       })()
@@ -1905,7 +2393,7 @@ useEffect(() => {
               spellCheck={false}
             />
             <Form.Text className="text-muted">
-              Tip: laat <code>_id</code> weg om automatisch een ObjectId te krijgen.
+              Hint: leave out yout <code>_id</code> to automatically get an ObjectId.
             </Form.Text>
           </Form.Group>
         </Modal.Body>
@@ -1917,6 +2405,97 @@ useEffect(() => {
         </Modal.Footer>
       </Modal>
 
+      <Modal show={createColOpen} onHide={() => setCreateColOpen(false)} centered>
+  <Modal.Header closeButton>
+    <Modal.Title>Create collection</Modal.Title>
+  </Modal.Header>
+  <Modal.Body>
+    {colErr && <Alert variant="danger" className="mb-2">{colErr}</Alert>}
+
+    <Form.Group className="mb-3">
+      <Form.Label>Collection name</Form.Label>
+      <Form.Control
+        value={colName}
+        onChange={(e) => setColName(e.target.value)}
+        placeholder="e.g. invoices"
+        autoFocus
+      />
+      <Form.Text className="text-muted">
+        Allowed: letters, numbers, <code>.</code> <code>_</code> <code>-</code>
+      </Form.Text>
+    </Form.Group>
+
+    <Form.Check
+      type="switch"
+      id="capped-switch"
+      label="Capped collection"
+      checked={colCapped}
+      onChange={(e) => setColCapped(e.currentTarget.checked)}
+      className="mb-2"
+    />
+
+    {colCapped && (
+      <Row className="g-2">
+        <Col md={6}>
+          <Form.Group>
+            <Form.Label>Size (bytes)</Form.Label>
+            <Form.Control
+              type="number"
+              min={1}
+              value={colSize}
+              onChange={(e) => setColSize(e.target.value === "" ? "" : Number(e.target.value))}
+              placeholder="e.g. 10485760"
+            />
+          </Form.Group>
+        </Col>
+        <Col md={6}>
+          <Form.Group>
+            <Form.Label>Max docs (optional)</Form.Label>
+            <Form.Control
+              type="number"
+              min={1}
+              value={colMax}
+              onChange={(e) => setColMax(e.target.value === "" ? "" : Number(e.target.value))}
+              placeholder="e.g. 10000"
+            />
+          </Form.Group>
+        </Col>
+      </Row>
+    )}
+  </Modal.Body>
+  <Modal.Footer>
+    <Button variant="light" onClick={() => setCreateColOpen(false)}>Cancel</Button>
+    <Button onClick={handleCreateCollection} disabled={colCreating}>
+      {colCreating ? "Creating..." : "Create"}
+    </Button>
+  </Modal.Footer>
+</Modal>
+
+{/* Settings */}
+<SettingsModal
+  show={settingsOpen}
+  onClose={() => setSettingsOpen(false)}
+  profiles={profiles}
+  onProfileUpdated={(p) => {
+    setProfiles(prev => prev.map(x => x._id === p._id ? p : x));
+    if (selected?._id === p._id) setSelected(p);
+  }}
+  onProfileDeleted={(id) => {
+    setProfiles(prev => prev.filter(x => x._id !== id));
+    if (selected?._id === id) { setSelected(null); setDb(undefined); }
+  }}
+  selected={selected}
+  db={db}
+  collections={collections}
+  onCollectionsChanged={async () => {
+    if (!selected) return;
+    const cols = await getCollections(selected._id, db);
+    setCollections(cols);
+  }}
+  prefs={appPrefs}
+  onPrefsChange={setAppPrefs}
+/>
+
       {/* Connection wizard */}
       <ConnectionWizard
         show={wizardOpen}
@@ -1927,6 +2506,7 @@ useEffect(() => {
           if (p.defaultDatabase) setDb(p.defaultDatabase);
         }}
       />
+      
     </div>
   );
 }

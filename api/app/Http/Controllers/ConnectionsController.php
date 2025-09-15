@@ -15,7 +15,7 @@ class ConnectionsController extends Controller
 
         $out = $items->map(function ($doc) {
             return [
-                '_id'             => (string) $doc->_id,          // 👈 string
+                '_id'             => (string) $doc->_id,          //  string
                 'name'            => $doc->name,
                 'engine'          => $doc->engine,
                 'defaultDatabase' => $doc->defaultDatabase,
@@ -23,6 +23,66 @@ class ConnectionsController extends Controller
         });
 
         return response()->json($out, 200);
+    }
+    
+
+   public function update(string $id, Request $r)
+    {
+        $conn = ConnectionProfile::find($id);
+        if (!$conn) {
+            return response()->json(['error' => 'Not found'], 404);
+        }
+
+        $data = $r->validate([
+            'name'            => 'sometimes|required|string',
+            'engine'          => 'sometimes|required|in:driver,data_api',
+            'uri'             => 'nullable|string',
+            'defaultDatabase' => 'nullable|string',
+        ]);
+
+        // URI veilig opslaan (enkel nuttig bij engine=driver)
+        if (array_key_exists('uri', $data)) {
+            $nextEngine = $data['engine'] ?? $conn->engine;
+            if ($nextEngine === 'driver' && !empty($data['uri'])) {
+                $data['uri'] = Crypt::encryptString($data['uri']);
+            } else {
+                // bij switch naar data_api of lege uri -> leeg maken
+                $data['uri'] = null;
+            }
+        }
+
+        $conn->fill($data);
+        $conn->save();
+
+        // Geef een compacte, genormaliseerde payload terug
+        return response()->json([
+            '_id'             => (string) $conn->_id,
+            'name'            => $conn->name,
+            'engine'          => $conn->engine,
+            'defaultDatabase' => $conn->defaultDatabase,
+        ], 200);
+    }
+    
+
+    public function show(string $id)
+    {
+        $conn = ConnectionProfile::find($id);
+        if (!$conn) {
+            return response()->json(['error' => 'Not found'], 404);
+        }
+        return response()->json($conn);
+    }
+
+        public function destroy(string $id)
+    {
+        $conn = ConnectionProfile::find($id);
+        if (!$conn) {
+            return response()->json(['error' => 'Not found'], 404);
+        }
+
+        $conn->delete();
+
+        return response()->json(['ok' => true], 200);
     }
 
     public function store(Request $r)
