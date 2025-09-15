@@ -30,7 +30,7 @@ Built with **Laravel** (API backend) and **React + Vite** (frontend).
 - [PHP](https://www.php.net/) (>=8.1)
 - [Make](https://www.gnu.org/software/make/) (usually preinstalled on macOS/Linux)
 
-### Installation
+## Installation
 
 Clone the repo and install dependencies:
 
@@ -38,3 +38,48 @@ Clone the repo and install dependencies:
 git clone https://github.com/yourname/mongodb-myadmin.git
 cd mongodb-myadmin
 make install
+```
+## Development
+
+Start both backend (Laravel) and frontend (Vite):
+```bash
+make dev
+```
+this will run:
+- Backend (Laravel) → http://127.0.0.1:8000
+- Frontend (Vite) → http://localhost:5173
+
+Logs are stored in .logs/.
+PIDs are tracked in .pids/.
+
+Stop servers cleanly with:
+```bash
+make stop
+```
+## Build for production
+```bash
+make build
+```
+
+This builds the frontend into static assets.
+
+## 📸 Screenshots
+List view:
+
+Canvas view:
+
+Settings modal:
+
+## ⚙️ Settings
+- Profiles: Manage connection profiles (edit, delete, test)
+- App: Theme, default view, grid spacing
+- Database: Create, rename, drop collections
+
+## 🤝 Contributing
+
+Pull requests are welcome!
+For major changes, please open an issue first to discuss what you would like to change.
+
+📄 License
+
+MIT License © 2025 [Nathanael Dousa]
