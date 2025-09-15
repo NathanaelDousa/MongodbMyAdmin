@@ -63,11 +63,17 @@ make build
 This builds the frontend into static assets.
 
 ## Screenshots
+Setup:
+![setup](./screenshots/Setup.gif)
+
 List view:
+![list](./screenshots/List.png)
 
 Canvas view:
+![canvas](./screenshots/Canvas.png)
 
 Settings modal:
+![settings](./screenshots/settings-profile.gif)
 
 ## Settings
 - Profiles: Manage connection profiles (edit, delete, test)
