@@ -7,7 +7,7 @@ Built with **Laravel** (API backend) and **React + Vite** (frontend).
 
 ---
 
-## ✨ Features
+## Features
 
 - 🔌 Connect to MongoDB via Driver or Atlas Data API  
 - 📂 Browse and manage collections  
@@ -62,14 +62,14 @@ make build
 
 This builds the frontend into static assets.
 
-## 📸 Screenshots
+## Screenshots
 List view:
 
 Canvas view:
 
 Settings modal:
 
-## ⚙️ Settings
+## Settings
 - Profiles: Manage connection profiles (edit, delete, test)
 - App: Theme, default view, grid spacing
 - Database: Create, rename, drop collections
