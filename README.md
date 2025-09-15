@@ -79,6 +79,6 @@ Settings modal:
 Pull requests are welcome!
 For major changes, please open an issue first to discuss what you would like to change.
 
-📄 License
+## 📄 License
 
-MIT License © 2025 [Nathanael Dousa]
+This project is licensed under the MIT License – see the [LICENSE](./LICENSE) file for details.
