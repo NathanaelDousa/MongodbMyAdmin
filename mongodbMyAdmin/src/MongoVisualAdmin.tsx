@@ -445,17 +445,18 @@ function DocNode({ data }: any) {
   };
 
   return (
-    <div
-      style={{
-        background: "#fff",
-        borderRadius: 12,
-        padding: 12,
-        boxShadow: "0 8px 18px -10px rgba(0,0,0,.25)",
-        minWidth: 240,
-        cursor: "pointer",
-        marginBottom: 70,
-      }}
-    >
+  <div
+    style={{
+      background: "#fff",
+      borderRadius: 12,
+      padding: 12,
+      boxShadow: "0 8px 18px -10px rgba(0,0,0,.25)",
+      width: 260,                // ⬅ vaste breedte
+      boxSizing: "border-box",   // ⬅ inclusief padding
+      cursor: "pointer",
+      marginBottom: 0,
+    }}
+  >
       <div style={{ fontWeight: 600, marginBottom: 8 }}>
         {data.collection}: {pickTitle(doc)}
       </div>
@@ -499,17 +500,81 @@ function estimateNodeHeight(doc: any): number {
   const perLine = 28;
   return base + lines * perLine;
 }
-function masonryNodes(docs: MongoDocument[], collection: string, cols = 4): Node[] {
-  const gapX = 280;
-  const gapY = 24;
+function separateOverlaps(arr: Node[], gap: number): Node[] {
+  // Kopie zodat we immutability houden
+  const out = arr.map(n => ({ ...n, position: { ...n.position } }));
+
+  // Groepeer per kolom (gebruik afgeronde X-positie als sleutel)
+  const buckets = new Map<number, Node[]>();
+  const keyX = (x: number) => Math.round(x);
+
+  for (const n of out) {
+    const k = keyX(n.position.x);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(n);
+  }
+
+  for (const list of buckets.values()) {
+    // Sorteer op Y zodat we van boven naar beneden corrigeren
+    list.sort((a, b) => a.position.y - b.position.y);
+
+    let cursor = -Infinity;
+    for (const n of list) {
+      const h = estimateNodeHeight((n.data as any)?.doc ?? {});
+      // Als deze node hoger begint dan 'cursor', schuif 'm omlaag
+      if (n.position.y < cursor) {
+        n.position.y = cursor;
+      }
+      cursor = n.position.y + h + gap;
+    }
+  }
+
+  return out;
+}
+function separateUsingDOM(arr: Node[], gap: number): Node[] {
+  const out = arr.map(n => ({ ...n, position: { ...n.position } }));
+  const buckets = new Map<number, Node[]>();
+  const keyX = (x: number) => Math.round(x);
+
+  for (const n of out) {
+    const k = keyX(n.position.x);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(n);
+  }
+
+  for (const list of buckets.values()) {
+    list.sort((a, b) => a.position.y - b.position.y);
+    let cursor = -Infinity;
+    for (const n of list) {
+      // Pak de échte DOM-hoogte van de node (valt terug op estimate)
+      const el = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(n.id)}"]`);
+      const hDom = el?.offsetHeight ?? estimateNodeHeight((n.data as any)?.doc ?? {});
+      if (n.position.y < cursor) n.position.y = cursor;
+      cursor = n.position.y + hDom + gap;
+    }
+  }
+  return out;
+}
+function masonryNodes(
+  docs: MongoDocument[],
+  collection: string,
+  cols = 4,
+  opts?: { nodeWidth?: number; gapX?: number; gapY?: number }
+): Node[] {
+  const NODE_W = opts?.nodeWidth ?? 260; // moet matchen met jouw DocNode breedte
+  const gapX = opts?.gapX ?? 24;         // horizontale lucht tussen kolommen
+  const gapY = opts?.gapY ?? 24;         // verticale lucht tussen kaarten
+
+  const stepX = NODE_W + gapX;           // kolomstap: kaartbreedte + lucht
+
   const colHeights = new Array(cols).fill(0);
   const nodes: Node[] = [];
 
   docs.forEach((doc, i) => {
     const h = estimateNodeHeight(doc);
     const col = colHeights.indexOf(Math.min(...colHeights));
-    const x = col * gapX;
-       const y = colHeights[col];
+    const x = col * stepX;
+    const y = colHeights[col];
     const raw = idToString(doc?._id) || String(i);
 
     nodes.push({
@@ -1153,47 +1218,7 @@ export default function App() {
     return { col: nodeId.slice(0, idx), id: nodeId.slice(idx + 1) };
   }, [activeCollection]);
 
-  const refreshActiveAfterChange = useCallback(async () => {
-    if (!activeCollection) return;
-    if (!selected) {
-      const docs = MOCK_DOCS[activeCollection] ?? [];
-      const nodesNew = masonryNodes(docs, activeCollection, 4);
-      const relaxed = relaxColumns(nodesNew, 36);
-      const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-      const hydrated = keepPositions(withNoStubs);
-      setNodes(hydrated);
-      setLastTemplateDoc(docs[0] ?? null);
 
-      // reset one-shot fit en voer hem 1x uit
-      didInitialFitRef.current = false;
-      queueMicrotask(() => {
-        if (!didInitialFitRef.current) {
-          fitToNodes();
-          didInitialFitRef.current = true;
-        }
-      });
-
-      setLayoutTick((t) => t + 1);
-      return;
-    }
-    const docs = await getDocs(selected._id, activeCollection, db, 100);
-    const nodesNew = masonryNodes(docs, activeCollection, 4);
-    const relaxed = relaxColumns(nodesNew, 36);
-    const withNoStubs = ensureRelationCounterparts(relaxed, relations);
-    setNodes(withNoStubs);
-    setLastTemplateDoc(docs[0] ?? null);
-
-    // reset one-shot fit en voer hem 1x uit
-    didInitialFitRef.current = false;
-    queueMicrotask(() => {
-      if (!didInitialFitRef.current) {
-        fitToNodes();
-        didInitialFitRef.current = true;
-      }
-    });
-
-    setLayoutTick((t) => t + 1);
-  }, [activeCollection, selected, db, relaxColumns, relations, ensureRelationCounterparts, setNodes]);
 
   const persistRelation = useCallback(async (sourceNodeId: string, targetNodeId: string, chosenField: string) => {
     if (!selected) return;
@@ -1315,45 +1340,88 @@ export default function App() {
 
 // ---------- Auto-fit helper (one-shot, meer uitgezoomd) ----------
 const fitToNodes = useCallback(() => {
-    if (!rf || didInitialFitRef.current) return;
+  if (!rf || didInitialFitRef.current) return;
+  const visible = (nodesRef.current || []).filter(n => !n.hidden);
+  if (!visible.length) return;
 
-    const base = (nodesRef.current || []).filter(n => !n.hidden);
-    if (!base.length) return;
+  const NODE_W = 260;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of visible) {
+    const h = estimateNodeHeight((n.data as any)?.doc ?? {});
+    const x1 = n.position.x, y1 = n.position.y, x2 = x1 + NODE_W, y2 = y1 + h;
+    if (x1 < minX) minX = x1;
+    if (y1 < minY) minY = y1;
+    if (x2 > maxX) maxX = x2;
+    if (y2 > maxY) maxY = y2;
+  }
+  const margin = 200;
+  const bounds = {
+    x: minX - margin,
+    y: minY - margin,
+    width: (maxX - minX) + margin * 2,
+    height: (maxY - minY) + margin * 2,
+  };
 
-    // bounds berekenen
-    const NODE_W = 260;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of base) {
-      const h = estimateNodeHeight((n.data as any)?.doc ?? {});
-      const x1 = n.position.x, y1 = n.position.y, x2 = x1 + NODE_W, y2 = y1 + h;
-      if (x1 < minX) minX = x1;
-      if (y1 < minY) minY = y1;
-      if (x2 > maxX) maxX = x2;
-      if (y2 > maxY) maxY = y2;
-    }
-    const margin = 200;
-    const bounds = {
-      x: minX - margin,
-      y: minY - margin,
-      width: (maxX - minX) + margin * 2,
-      height: (maxY - minY) + margin * 2,
-    };
-
-    // pas fit toe nádat ReactFlow canvas geverfd is
+  requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        rf.fitBounds(bounds, { padding: 0.15, duration: 0 });
-
-        // centreer expliciet + klein tikje uitzoomen voor lucht
-        const cx = bounds.x + bounds.width / 2;
-        const cy = bounds.y + bounds.height / 2;
-        rf.setCenter(cx, cy, { zoom: Math.max(0.35, rf.getZoom() * 0.9), duration: 0 });
-
-        didInitialFitRef.current = true;
-        pendingFitRef.current = false;
-      });
+      rf.fitBounds(bounds, { padding: 0.15, duration: 0 });
+      const cx = bounds.x + bounds.width / 2;
+      const cy = bounds.y + bounds.height / 2;
+      rf.setCenter(cx, cy, { zoom: Math.max(0.35, rf.getZoom() * 0.9), duration: 0 });
+      didInitialFitRef.current = true;
+      pendingFitRef.current = false;
     });
-  }, [rf]);
+  });
+}, [rf]);
+
+const refreshActiveAfterChange = useCallback(async () => {
+  if (!activeCollection) return;
+
+  const apply = (docs: MongoDocument[]) => {
+  const nodesNew = masonryNodes(docs, activeCollection, 4, {
+    nodeWidth: 260,
+    gapX: appPrefs.gridGap, // ⬅ horizontale lucht uit settings
+    gapY: appPrefs.gridGap, // ⬅ verticale lucht (relaxColumns doet ook vertical, maar dit is oké)
+  });
+  const relaxed = relaxColumns(nodesNew, appPrefs.gridGap);
+  const withNoStubs = ensureRelationCounterparts(relaxed, relations);
+  const fixed = separateOverlaps(withNoStubs, appPrefs.gridGap);
+
+    setNodes(fixed);
+    setLastTemplateDoc(docs[0] ?? null);
+
+    // éénmalig fitten
+    didInitialFitRef.current = false;
+    queueMicrotask(() => {
+      if (!didInitialFitRef.current && appPrefs.autoFit) {
+        fitToNodes();
+        didInitialFitRef.current = true;
+      }
+    });
+
+    setLayoutTick((t) => t + 1);
+  };
+
+  if (!selected) {
+    const docs = MOCK_DOCS[activeCollection] ?? [];
+    apply(docs);
+    return;
+  }
+
+  const docs = await getDocs(selected._id, activeCollection, db, 100);
+  apply(docs);
+}, [
+  activeCollection,
+  selected,
+  db,
+  relations,
+  appPrefs.gridGap,
+  appPrefs.autoFit,
+  relaxColumns,
+  ensureRelationCounterparts,
+  fitToNodes,
+  setNodes
+]);
 
   // =============== List → Canvas bridge state ===============
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -1392,7 +1460,6 @@ const fitToNodes = useCallback(() => {
   const clearCanvas = () => setCanvasPool(new Map());
 
   // Build canvas nodes from canvasPool (cross-collection)
-// 1) Zorg dat deze callback NIET afhangt van `nodes`
 const buildCanvasNodesFromPool = useCallback((): Node[] => {
   if (!canvasPool.size) return [];
 
@@ -1405,67 +1472,84 @@ const buildCanvasNodesFromPool = useCallback((): Node[] => {
 
   const out: Node[] = [];
   let xOffset = 0;
+
   const COLS_PER_GROUP = 2;
-  const GROUP_GAP_X = 120;
+  const NODE_W = 260;
+  const stepX = NODE_W + appPrefs.gridGap;           // ⬅ kolombreedte + lucht
+  const GROUP_GAP_X = Math.max(120, appPrefs.gridGap * 3); // ⬅ lucht tussen collecties
 
   for (const [collection, docs] of groups.entries()) {
-    const part = masonryNodes(docs, collection, COLS_PER_GROUP);
+    const part = masonryNodes(docs, collection, COLS_PER_GROUP, {
+      nodeWidth: NODE_W,
+      gapX: appPrefs.gridGap,
+      gapY: appPrefs.gridGap,
+    });
     part.forEach(n => { n.position.x += xOffset; });
     out.push(...part);
-    xOffset += COLS_PER_GROUP * 280 + GROUP_GAP_X;
+
+    // schuif offset voor volgende collection-groep
+    xOffset += COLS_PER_GROUP * stepX + GROUP_GAP_X;
   }
   return out;
-}, [canvasPool]);
+}, [canvasPool, appPrefs.gridGap]);
 
 // 2) De useEffect die schakelt tussen list ↔ canvas
-useEffect(() => {
-  if (viewMode === "canvas") {
-    const next = buildCanvasNodesFromPool();
-    if (next.length) setNodes(next);
+// useEffect(() => {
+//   if (viewMode === "canvas") {
+//     const next = buildCanvasNodesFromPool();
+//     if (next.length) setNodes(next);
 
-    // reset + pas na paint centreren
-    didInitialFitRef.current = false;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        fitToNodes();
-      });
-    });
-  } else {
-    // terug naar list → herladen + 1x fit
-    didInitialFitRef.current = false;
-    refreshActiveAfterChange();
-  }
-}, [viewMode, buildCanvasNodesFromPool, fitToNodes, refreshActiveAfterChange]);
+//     // reset + pas na paint centreren
+//     didInitialFitRef.current = false;
+//     requestAnimationFrame(() => {
+//       requestAnimationFrame(() => {
+//         fitToNodes();
+//       });
+//     });
+//   } else {
+//     // terug naar list → herladen + 1x fit
+//     didInitialFitRef.current = false;
+//     refreshActiveAfterChange();
+//   }
+// }, [viewMode, buildCanvasNodesFromPool, fitToNodes, refreshActiveAfterChange]);
+
 useEffect(() => {
   setViewMode(appPrefs.defaultView);
 }, [appPrefs.defaultView]);
+
   // put this below buildCanvasNodesFromPool (and above edges memo is fine)
 useEffect(() => {
   if (viewMode === "canvas") {
-    const next = buildCanvasNodesFromPool();
-
-    if (next.length) {
-      setNodes(keepPositions(next));
+    const raw = buildCanvasNodesFromPool();
+    // Spreid en corrigeer overlap, met jouw grid-gap
+    const arranged = relaxColumns(raw, appPrefs.gridGap);
+    if (arranged.length) {
+      const kept = keepPositions(arranged);
+      const fixed = separateOverlaps(kept, appPrefs.gridGap);
+      setNodes(fixed);
     } else {
-      // Fallback: toon de huidige lijst-layout op de canvas
-      // (laadt docs van activeCollection en zet nodes)
+      // Fallback: laad de huidige list-layout
       refreshActiveAfterChange();
     }
 
-    // reset + pas na paint centreren
     didInitialFitRef.current = false;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        fitToNodes();
-      });
-    });
+    if (appPrefs.autoFit) {
+      requestAnimationFrame(() => requestAnimationFrame(() => fitToNodes()));
+    }
   } else {
-    // terug naar list → herladen + 1x fit
     didInitialFitRef.current = false;
     refreshActiveAfterChange();
   }
-}, [viewMode, buildCanvasNodesFromPool, fitToNodes, refreshActiveAfterChange]);
-
+}, [
+  viewMode,
+  buildCanvasNodesFromPool,
+  keepPositions,
+  refreshActiveAfterChange,
+  relaxColumns,
+  fitToNodes,
+  appPrefs.gridGap,
+  appPrefs.autoFit
+]);
   // When switching to canvas, render canvas-pool as current nodes
   useEffect(() => {
     if (viewMode !== "canvas") return;
@@ -1489,6 +1573,31 @@ useEffect(() => {
 
     return () => ro.disconnect();
   }, [viewMode, fitToNodes]);
+
+  useEffect(() => {
+  // Alleen in canvas heeft het zin om visueel te “re-packen”
+  if (viewMode !== "canvas") return;
+
+  // Wacht tot DOM klaar is
+  const id = requestAnimationFrame(() => {
+    const fixed = separateUsingDOM(nodes as Node[], appPrefs.gridGap);
+
+    // Check of er werkelijk iets verandert (voorkom eindeloze setState)
+    const changed = (fixed.length === (nodes as Node[]).length) &&
+      fixed.some((f, i) => {
+        const n = (nodes as Node[])[i];
+        return f.id === n.id && (f.position.y !== n.position.y || f.position.x !== n.position.x);
+      });
+
+    if (changed) {
+      setNodes(fixed);
+      // als je wilt kun je hierna ook nog eens fitten:
+      // requestAnimationFrame(() => fitToNodes());
+    }
+  });
+
+  return () => cancelAnimationFrame(id);
+}, [nodes, viewMode, appPrefs.gridGap, setNodes]);
 
   // Extra guard: zodra nodes veranderen en we in canvas zitten, doe (eenmalig) fit
   useEffect(() => {

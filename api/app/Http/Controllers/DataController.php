@@ -285,10 +285,19 @@ class DataController extends Controller
         }
 
         try {
-            $db->selectCollection($from)->rename($to, ['dropTarget' => false]);
+            $db->selectCollection($from)->rename(
+                toCollectionName: $to,
+                toDatabaseName: null,
+                options: ['dropTarget' => false]
+            );
+
+            //  SUCCES
             return response()->json(['ok' => true]);
         } catch (\Throwable $e) {
-            return response()->json(['error' => 'Failed to rename collection', 'detail' => $e->getMessage()], 500);
+            return response()->json([
+                'error'  => 'Failed to rename collection',
+                'detail' => $e->getMessage()
+            ], 500);
         }
     }
 
