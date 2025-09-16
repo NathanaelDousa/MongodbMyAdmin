@@ -39,6 +39,8 @@ import { useFitToNodes } from "./hooks/useFitToNodes";
 import DocNode from "./components/DocNode";
 import SettingsModal from "./components/SettingsModal";
 import ConnectionWizard from "./components/ConnectionWizard";
+import DocumentModal from "./components/DocumentModal";
+import CreateDocumentModal from "./components/CreateDocumentModal";
 
 // ——— mock data (alleen als geen backend) ———
 const MOCK_COLLECTIONS: Collection[] = [
@@ -786,179 +788,46 @@ return (
     )}
 
     {/* Document modal */}
-    <Modal show={!!docDetail} onHide={() => setDocDetail(null)} size="lg" centered>
-      <Modal.Header closeButton>
-        <Modal.Title>Document: {idToString(docDetail?._id)}</Modal.Title>
-      </Modal.Header>
-      <Modal.Body>
-        <Row className="g-3">
-          <Col xs={12} md={4}>
-            <Card>
-              <Card.Header className="py-2"><strong>Actions</strong></Card.Header>
-              <Card.Body className="d-grid gap-2">
-                {!isEditing ? (
-                  <Button size="sm" onClick={handleStartEdit}>Edit</Button>
-                ) : (
-                  <Button size="sm" variant="success" disabled={editSaving} onClick={handleSaveEdit}>
-                    {editSaving ? "Saving..." : "Save changes"}
-                  </Button>
-                )}
-                <Button size="sm" variant="outline-secondary" onClick={handleClone}>Clone</Button>
-                <Button size="sm" variant="outline-secondary" onClick={handleExport}>Export JSON</Button>
-                <Button size="sm" variant="danger" onClick={handleDeleteCurrent}>Delete</Button>
-                {editError && <Alert className="mt-2 mb-0" variant="danger">{editError}</Alert>}
-              </Card.Body>
-            </Card>
-          </Col>
-
-          <Col xs={12} md={8}>
-            <Tab.Container defaultActiveKey="json">
-              <Nav variant="tabs">
-                <Nav.Item><Nav.Link eventKey="json">JSON</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="schema">Schema</Nav.Link></Nav.Item>
-                <Nav.Item><Nav.Link eventKey="history">History</Nav.Link></Nav.Item>
-              </Nav>
-
-              <Tab.Content className="border border-top-0 rounded-bottom p-3" style={{ height: 360, overflow: "auto" }}>
-                <Tab.Pane eventKey="json">
-                  {!isEditing ? (
-                    <pre className="small mb-0">{safeStringify(docDetail, 2)}</pre>
-                  ) : (
-                    <Form.Group>
-                      <Form.Label className="small text-muted">Edit JSON</Form.Label>
-                      <Form.Control
-                        as="textarea"
-                        rows={14}
-                        value={editJson}
-                        onChange={(e) => setEditJson(e.target.value)}
-                        spellCheck={false}
-                      />
-                      <Form.Text className="text-muted">
-                        Hint: Leave <code>_id</code> intact or use the same type as your backend expects.
-                      </Form.Text>
-                    </Form.Group>
-                  )}
-                </Tab.Pane>
-
-                <Tab.Pane eventKey="schema">
-                  {docDetail ? (
-                    <div className="small">
-                      <table className="table table-sm align-middle">
-                        <thead>
-                          <tr>
-                            <th style={{ width: "55%" }}>Field</th>
-                            <th style={{ width: "20%" }}>Type</th>
-                            <th>Sample</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(docDetail).flatMap(([k, v]) => {
-                            const isObj = v && typeof v === "object" && !Array.isArray(v);
-                            if (isObj) {
-                              return [
-                                [k, "object", "{…}"],
-                                ...Object.entries(v as any).map(([k2, v2]) => [`${k}.${k2}`, typeof v2, String(shortVal(v2))])
-                              ];
-                            }
-                            const isArr = Array.isArray(v);
-                            return [[k, isArr ? "array" : typeof v, isArr ? `[${(v as any[])[0] ? typeof (v as any[])[0] : ""}]` : String(shortVal(v))]];
-                          }).map(([path, type, sample]) => (
-                            <tr key={String(path)}>
-                              <td><code>{String(path)}</code></td>
-                              <td><span className="badge bg-light text-dark">{String(type)}</span></td>
-                              <td className="text-truncate">{String(sample)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (<div className="text-muted small">(No document)</div>)}
-                </Tab.Pane>
-
-                <Tab.Pane eventKey="history">
-                  {docDetail ? (
-                    docHistory.length ? (
-                      <div className="small">
-                        {docHistory.map((h, i) => (
-                          <details key={i} className="mb-2">
-                            <summary>{new Date(h.ts).toLocaleString()}
-                              <span className="text-muted ms-2">(previous version)</span>
-                            </summary>
-                            <pre className="mt-2">{safeStringify(h.doc, 2)}</pre>
-                          </details>
-                        ))}
-                      </div>
-                    ) : <div className="text-muted small">No history yet. Save an edit to create a version.</div>
-                  ) : (<div className="text-muted small">(No document)</div>)}
-                </Tab.Pane>
-              </Tab.Content>
-            </Tab.Container>
-          </Col>
-        </Row>
-      </Modal.Body>
-      <Button variant="light" className="position-absolute top-0 end-0 m-2" onClick={() => setDocDetail(null)}>
-        <X size={16} />
-      </Button>
-    </Modal>
+    <DocumentModal
+    show={!!docDetail}
+    doc={docDetail}
+    collection={docCollection ?? activeCollection}
+    isEditing={isEditing}
+    editJson={editJson}
+    editSaving={editSaving}
+    editError={editError}
+    history={docHistory}
+    onStartEdit={handleStartEdit}
+    onChangeEditJson={setEditJson}
+    onSaveEdit={handleSaveEdit}
+    onClone={handleClone}
+    onExport={handleExport}
+    onDelete={handleDeleteCurrent}
+    onClose={() => setDocDetail(null)}
+    />
 
     {/* Create document modal */}
-    <Modal show={createOpen} onHide={() => setCreateOpen(false)} size="lg" centered>
-      <Modal.Header closeButton><Modal.Title>New document in {activeCollection}</Modal.Title></Modal.Header>
-      <Modal.Body>
-        {createError && <Alert variant="danger" className="mb-2">{createError}</Alert>}
-
-        <div className="d-flex align-items-center gap-2 mb-2">
-          <span className="text-muted small">Template:</span>
-          <ButtonGroup size="sm">
-            <Button variant="outline-secondary" onClick={() => setCreateJson("{\n  \n}")}>Empty</Button>
-            <Button
-              variant="outline-secondary"
-              onClick={() => setCreateJson(templateJsonFromDoc(lastTemplateDoc))}
-              disabled={!lastTemplateDoc}
-              title={lastTemplateDoc ? "Use last opened document structure" : "Open a document first"}
-            >
-              <History size={14} className="me-1" /> Last opened
-            </Button>
-            <Button
-              variant="outline-secondary"
-              onClick={async () => {
-                try {
-                  const docs = selected
-                    ? await getDocs(selected._id, activeCollection, db, 1)
-                    : (MOCK_DOCS[activeCollection] ?? []).slice(0,1);
-                  setCreateJson(templateJsonFromDoc((Array.isArray(docs) ? docs[0] : docs)));
-                } catch {
-                  setCreateJson("{\n  \n}");
-                }
-              }}
-            >
-              <ListStart size={14} className="me-1" /> First in list
-            </Button>
-          </ButtonGroup>
-          <span className="ms-2 text-muted small">
-            <Wand2 size={14} className="me-1" /> fills keys, clears values, omits <code>_id</code>
-          </span>
-        </div>
-
-        <Form.Group>
-          <Form.Label>JSON</Form.Label>
-          <Form.Control
-            as="textarea" rows={14}
-            value={createJson}
-            onChange={(e) => setCreateJson(e.target.value)}
-            spellCheck={false}
-          />
-          <Form.Text className="text-muted">
-            Hint: leave out your <code>_id</code> to automatically get an ObjectId.
-          </Form.Text>
-        </Form.Group>
-      </Modal.Body>
-      <Modal.Footer>
-        <Button variant="light" onClick={() => setCreateOpen(false)}>Cancel</Button>
-        <Button onClick={handleCreateDocument} disabled={creating}>{creating ? "Creating..." : "Create"}</Button>
-      </Modal.Footer>
-    </Modal>
-
+    <CreateDocumentModal
+    show={createOpen}
+    activeCollection={activeCollection}
+    createJson={createJson}
+    creating={creating}
+    createError={createError}
+    lastTemplateDoc={lastTemplateDoc}
+    onUseEmpty={() => setCreateJson("{\n  \n}")}
+    onUseLastOpened={() => setCreateJson(templateJsonFromDoc(lastTemplateDoc))}
+    onUseFirstInList={async () => {
+        try {
+        const docs = selected
+            ? await getDocs(selected._id, activeCollection, db, 1)
+            : []; // mock path kan ook, als je wilt
+        setCreateJson(templateJsonFromDoc((Array.isArray(docs) ? docs[0] : docs)));
+        } catch { setCreateJson("{\n  \n}"); }
+    }}
+    onChangeJson={setCreateJson}
+    onCreate={handleCreateDocument}
+    onClose={() => setCreateOpen(false)}
+    />
     {/* Settings */}
     <SettingsModal
     show={settingsOpen}
