@@ -81,7 +81,7 @@ make build
 
 ## Screenshots
 Setup:
-![setup](./screenshots/Setup.gif)
+![steup-mongodbmyadmin](https://github.com/user-attachments/assets/4823fdfa-cd06-4d17-8673-b37190d0da66)
 
 List view:
 <img width="1445" height="496" alt="List" src="https://github.com/user-attachments/assets/665c8dc6-d203-4052-8886-a6ed025903fb" />
@@ -91,7 +91,7 @@ Canvas view:
 
 
 Settings modal:
-![settings](./screenshots/settings-profile.gif)
+![settings-profile](https://github.com/user-attachments/assets/7bddafec-5fb6-4b64-8a15-41fe98224017)
 
 ## Settings
 - Profiles: Manage connection profiles (edit, delete, test)
