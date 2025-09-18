@@ -1,5 +1,5 @@
 
-![Demo](./screenshots/MongodbAdminLogo.gif)
+![MongodbAdminLogo](https://github.com/user-attachments/assets/878b877d-d4e2-44a6-963c-565df015f22f)
 
 A modern, lightweight alternative to MongoDB Compass.  
 Manage your MongoDB clusters, collections, and documents directly from a clean web interface.  
@@ -84,10 +84,11 @@ Setup:
 ![setup](./screenshots/Setup.gif)
 
 List view:
-![list](./screenshots/List.png)
+<img width="1445" height="496" alt="List" src="https://github.com/user-attachments/assets/665c8dc6-d203-4052-8886-a6ed025903fb" />
 
 Canvas view:
-![canvas](./screenshots/Canvas.png)
+<img width="1154" height="870" alt="Canvas" src="https://github.com/user-attachments/assets/31bddebd-3eda-4b1e-a0a5-b8576c131099" />
+
 
 Settings modal:
 ![settings](./screenshots/settings-profile.gif)
