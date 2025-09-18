@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\{ ConnectionsController, DataController };
 
-// Healthcheck (mag onder web blijven)
+// Healthcheck 
 Route::get('/ping', fn () => ['pong' => true]);
 
 
@@ -17,13 +17,12 @@ Route::withoutMiddleware([
 ])->middleware('api')->group(function () {
 
     // Connections
-// Connections
-Route::get   ('/connections',            [ConnectionsController::class, 'index']);
-Route::post  ('/connections',            [ConnectionsController::class, 'store']);
-Route::get   ('/connections/{id}',       [ConnectionsController::class, 'show']);   // <-- add
-Route::patch ('/connections/{id}',       [ConnectionsController::class, 'update']);
-Route::delete('/connections/{id}',       [ConnectionsController::class, 'destroy']);
-Route::post  ('/connections/{id}/test',  [ConnectionsController::class, 'test']);
+    Route::get   ('/connections',            [ConnectionsController::class, 'index']);
+    Route::post  ('/connections',            [ConnectionsController::class, 'store']);
+    Route::get   ('/connections/{id}',       [ConnectionsController::class, 'show']);   
+    Route::patch ('/connections/{id}',       [ConnectionsController::class, 'update']);
+    Route::delete('/connections/{id}',       [ConnectionsController::class, 'destroy']);
+    Route::post  ('/connections/{id}/test',  [ConnectionsController::class, 'test']);
 
     // Data
     Route::get ('/collections',                    [DataController::class, 'collections']);
@@ -37,4 +36,8 @@ Route::post  ('/connections/{id}/test',  [ConnectionsController::class, 'test'])
     Route::post('/collections/_create', [DataController::class, 'createCollection']);
     Route::post('/collections/_rename', [DataController::class, 'renameCollection']);
     Route::delete('/collections/{name}', [DataController::class, 'dropCollection']);
+
+    // AI features
+    Route::post('/ai/generate', [DataController::class, 'aiGenerate']);
+    Route::post('/ai/run',      [DataController::class, 'aiRun']);
 });

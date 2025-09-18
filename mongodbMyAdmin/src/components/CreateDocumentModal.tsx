@@ -1,4 +1,3 @@
-import React from "react";
 import { Modal, Button, ButtonGroup, Alert, Form } from "react-bootstrap";
 import { History, ListStart, Wand2 } from "lucide-react";
 import type { MongoDocument } from "../types";

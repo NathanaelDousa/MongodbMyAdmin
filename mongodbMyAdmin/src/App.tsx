@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background, Controls, MiniMap, applyNodeChanges, type NodeChange
 } from "reactflow";
@@ -41,6 +41,9 @@ import SettingsModal from "./components/SettingsModal";
 import ConnectionWizard from "./components/ConnectionWizard";
 import DocumentModal from "./components/DocumentModal";
 import CreateDocumentModal from "./components/CreateDocumentModal";
+import AiQueryBar from "./components/AiQueryBar";
+
+
 
 // ——— mock data (alleen als geen backend) ———
 const MOCK_COLLECTIONS: Collection[] = [
@@ -75,6 +78,7 @@ export default function App() {
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const posRef = useRef<Map<string, {x:number; y:number}>>(new Map());
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+
 
   // Fit hook
   const { fitToNodes, nodesRef, didInitialFitRef } = useFitToNodes();
@@ -135,6 +139,8 @@ export default function App() {
     const [colMax, setColMax] = useState<number | "">("");
     const [colCreating, setColCreating] = useState(false);
     const [colErr, setColErr] = useState<string | null>(null);
+
+
 
   // Persist & theme
   useEffect(() => {
@@ -539,6 +545,8 @@ async function handleCreateDocument() {
   }
 }
 
+
+
 // List-rows (zichtbare nodes)
 const listRows = useMemo(() => nodes.filter(n => !n.hidden), [nodes]);
 
@@ -632,16 +640,21 @@ return (
 
                 {/* RECHTERKANT: search + acties */}
                 <div className="d-flex align-items-center gap-2 flex-wrap">
-                <div className="position-relative">
-                    <Search size={16} className="position-absolute" style={{ left: 8, top: 8, opacity: 0.6 }} />
-                    <Form.Control
-                    style={{ paddingLeft: 28, width: 220 }}
-                    size="sm"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search documents"
-                    />
-                </div>
+                {/* AI bar – compact en in lijn */}
+                <AiQueryBar
+                profileId={selected?._id ?? null}
+                db={db ?? null}
+                activeCollection={activeCollection}
+                onResults={(docs) => {
+                    // Toon resultaten als list (of open modal etc.)
+                    // Hier doen we simpel: render tijdelijk in de list door nodes te rebuilden.
+                    const nodesNew = masonryNodes(docs as any, activeCollection, 4);
+                    const relaxed = relaxColumns(nodesNew, 36);
+                    const fixed   = separateOverlaps(keepPositions(relaxed, posRef.current), 36);
+                    setNodes(fixed);
+                    setViewMode("list");
+                }}
+                />
 
                 <Button
                     size="sm"

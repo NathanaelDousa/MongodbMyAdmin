@@ -1,4 +1,3 @@
-import React from "react";
 import { Modal, Button, Card, Alert, Row, Col, Form, Nav, Tab } from "react-bootstrap";
 import { X } from "lucide-react";
 import type { MongoDocument, DocHistoryItem } from "../types";

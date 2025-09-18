@@ -1,5 +1,5 @@
 // src/components/SettingsModal.tsx
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Button, Alert, Table, Form, Row, Col, Nav, Tab, ToggleButton } from "react-bootstrap";
 import type { Collection, ConnectionProfile, ViewMode } from "../types";
 import { createCollection, renameCollection, dropCollection, updateConnectionProfile, deleteConnectionProfile } from "../lib/api";

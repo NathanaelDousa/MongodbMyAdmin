@@ -3,8 +3,302 @@
 > vite --open --host --port 5173 --strictPort
 
 
-  VITE v7.1.4  ready in 106 ms
+  VITE v7.1.4  ready in 144 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: http://192.168.1.173:5173/
   ➜  Network: http://10.5.0.2:5173/
+12:09:34 PM [vite] (client) hmr update /src/App.tsx, /src/components/ConnectionWizard.tsx, /src/components/SettingsModal.tsx
+12:09:38 PM [vite] (client) hmr update /src/App.tsx, /src/components/ConnectionWizard.tsx, /src/components/SettingsModal.tsx
+12:10:11 PM [vite] (client) hmr update /src/App.tsx, /src/components/ConnectionWizard.tsx, /src/components/SettingsModal.tsx
+12:10:23 PM [vite] (client) hmr update /src/App.tsx, /src/components/ConnectionWizard.tsx, /src/components/SettingsModal.tsx
+12:12:10 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:13:30 PM [vite] (client) hmr update /src/App.tsx
+12:13:33 PM [vite] (client) hmr update /src/App.tsx
+12:13:38 PM [vite] (client) hmr update /src/App.tsx
+12:18:46 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:22:57 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:23:02 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:23:10 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:23:13 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:23:16 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+12:23:20 PM [vite] (client) hmr update /src/components/AiQueryBar.tsx
+4:10:56 PM [vite] (client) hmr update /src/App.tsx
+4:10:56 PM [vite] Internal server error: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx: Unexpected reserved word 'await'. (146:12)
+
+  144 |     const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 | // in your AI action handler (App.tsx)
+> 146 | const gen = await aiGenerate(selected!._id, db!, {
+      |             ^
+  147 |   natural: naturalText,
+  148 |   mode: mode,                // "find" | "aggregate"
+  149 |   collection: activeCollection, // <-- exact casing from the sidebar selection
+  Plugin: vite:react-babel
+  File: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx:146:12
+  144 |      const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 |  // in your AI action handler (App.tsx)
+  146 |  const gen = await aiGenerate(selected!._id, db!, {
+      |              ^
+  147 |    natural: naturalText,
+  148 |    mode: mode,                // "find" | "aggregate"
+      at constructor (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:6630:19)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12237:12)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9398:13)
+      at TypeScriptParserMixin.parseIdentifierName (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12217:12)
+      at TypeScriptParserMixin.parseIdentifier (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12187:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11421:27)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:4797:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9857:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9806:20)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12427:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:17)
+      at TypeScriptParserMixin.parseVar (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13389:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13235:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9498:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12856:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12752:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseBlock (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13302:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12106:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9252:18)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13450:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12409:14)
+      at TypeScriptParserMixin.parseFunction (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13449:10)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13912:19)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9492:18)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13833:25)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9475:20)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12883:27)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12749:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseProgram (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12630:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12620:25)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:14497:10)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10149:18)
+4:10:59 PM [vite] (client) hmr update /src/App.tsx
+4:10:59 PM [vite] Internal server error: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx: Unexpected reserved word 'await'. (146:16)
+
+  144 |     const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 |     // in your AI action handler (App.tsx)
+> 146 |     const gen = await aiGenerate(selected!._id, db!, {
+      |                 ^
+  147 |     natural: naturalText,
+  148 |     mode: mode,                // "find" | "aggregate"
+  149 |     collection: activeCollection, // <-- exact casing from the sidebar selection
+  Plugin: vite:react-babel
+  File: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx:146:16
+  144 |      const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 |      // in your AI action handler (App.tsx)
+  146 |      const gen = await aiGenerate(selected!._id, db!, {
+      |                  ^
+  147 |      natural: naturalText,
+  148 |      mode: mode,                // "find" | "aggregate"
+      at constructor (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:6630:19)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12237:12)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9398:13)
+      at TypeScriptParserMixin.parseIdentifierName (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12217:12)
+      at TypeScriptParserMixin.parseIdentifier (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12187:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11421:27)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:4797:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9857:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9806:20)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12427:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:17)
+      at TypeScriptParserMixin.parseVar (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13389:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13235:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9498:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12856:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12752:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseBlock (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13302:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12106:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9252:18)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13450:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12409:14)
+      at TypeScriptParserMixin.parseFunction (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13449:10)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13912:19)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9492:18)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13833:25)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9475:20)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12883:27)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12749:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseProgram (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12630:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12620:25)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:14497:10)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10149:18)
+4:11:02 PM [vite] (client) hmr update /src/App.tsx
+4:11:02 PM [vite] Internal server error: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx: Unexpected reserved word 'await'. (146:16)
+
+  144 |     const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 |
+> 146 |     const gen = await aiGenerate(selected!._id, db!, {
+      |                 ^
+  147 |     natural: naturalText,
+  148 |     mode: mode,                // "find" | "aggregate"
+  149 |     collection: activeCollection, // <-- exact casing from the sidebar selection
+  Plugin: vite:react-babel
+  File: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx:146:16
+  144 |      const API = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+  145 |  
+  146 |      const gen = await aiGenerate(selected!._id, db!, {
+      |                  ^
+  147 |      natural: naturalText,
+  148 |      mode: mode,                // "find" | "aggregate"
+      at constructor (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:6630:19)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12237:12)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9398:13)
+      at TypeScriptParserMixin.parseIdentifierName (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12217:12)
+      at TypeScriptParserMixin.parseIdentifier (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12187:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11421:27)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:4797:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9857:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9806:20)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12427:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:17)
+      at TypeScriptParserMixin.parseVar (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13389:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13235:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9498:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12856:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12752:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseBlock (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13302:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12106:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9252:18)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13450:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12409:14)
+      at TypeScriptParserMixin.parseFunction (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13449:10)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13912:19)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9492:18)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13833:25)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9475:20)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12883:27)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12749:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseProgram (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12630:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12620:25)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:14497:10)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10149:18)
+4:11:07 PM [vite] (client) hmr update /src/App.tsx
+4:11:50 PM [vite] (client) hmr update /src/App.tsx
+4:11:52 PM [vite] (client) hmr update /src/App.tsx
+4:15:28 PM [vite] (client) hmr update /src/App.tsx
+4:15:49 PM [vite] (client) hmr update /src/App.tsx
+4:16:15 PM [vite] (client) hmr update /src/App.tsx
+4:16:20 PM [vite] (client) hmr update /src/App.tsx
+4:16:20 PM [vite] Internal server error: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx: Unexpected reserved word 'await'. (549:32)
+
+  547 |
+  548 |
+> 549 |   const docs: MongoDocument[] = await r.json();
+      |                                 ^
+  550 |
+  551 |   // render resultaten in je list/canvas zoals normaal
+  552 |   const nodesNew = masonryNodes(docs, collection, 4);
+  Plugin: vite:react-babel
+  File: /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/src/App.tsx:549:32
+  547 |  
+  548 |  
+  549 |    const docs: MongoDocument[] = await r.json();
+      |                                  ^
+  550 |  
+  551 |    // render resultaten in je list/canvas zoals normaal
+      at constructor (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:367:19)
+      at TypeScriptParserMixin.raise (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:6630:19)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12237:12)
+      at TypeScriptParserMixin.checkReservedWord (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9398:13)
+      at TypeScriptParserMixin.parseIdentifierName (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12217:12)
+      at TypeScriptParserMixin.parseIdentifier (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12187:23)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11421:27)
+      at TypeScriptParserMixin.parseExprAtom (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:4797:20)
+      at TypeScriptParserMixin.parseExprSubscripts (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9857:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9806:20)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12427:16)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10800:17)
+      at TypeScriptParserMixin.parseVar (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13389:91)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13235:10)
+      at TypeScriptParserMixin.parseVarStatement (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9498:31)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12856:23)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseStatementListItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12752:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:61)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseBlock (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13302:10)
+      at TypeScriptParserMixin.parseFunctionBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12106:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12092:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9252:18)
+      at /Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13450:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12409:14)
+      at TypeScriptParserMixin.parseFunction (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13449:10)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13912:19)
+      at TypeScriptParserMixin.parseExportDefaultExpression (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9492:18)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13833:25)
+      at TypeScriptParserMixin.parseExport (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9475:20)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12883:27)
+      at TypeScriptParserMixin.parseStatementContent (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:9532:18)
+      at TypeScriptParserMixin.parseStatementLike (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12772:17)
+      at TypeScriptParserMixin.parseModuleItem (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12749:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13321:36)
+      at TypeScriptParserMixin.parseBlockBody (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:13314:10)
+      at TypeScriptParserMixin.parseProgram (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12630:10)
+      at TypeScriptParserMixin.parseTopLevel (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:12620:25)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:14497:10)
+      at TypeScriptParserMixin.parse (/Users/nathanaeldousa/projects/MongodbMyAdmin/mongodbMyAdmin/node_modules/@babel/parser/lib/index.js:10149:18)
+4:16:25 PM [vite] (client) hmr update /src/App.tsx

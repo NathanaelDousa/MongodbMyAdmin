@@ -119,3 +119,56 @@ export async function dropCollection(profileId: string, db: string, name: string
     method: "DELETE",
   });
 }
+
+// AI: natural language → query
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}${path}`, init);
+  const text = await res.text(); // veilig eerst text
+  let json: any = null;
+  if (text) {
+    try { json = JSON.parse(text); } catch {
+      // backend gaf geen geldige JSON
+      throw new Error(`Invalid JSON from server: ${text.slice(0, 200)}`);
+    }
+  }
+  if (!res.ok) {
+    const msg = json?.error || text || `${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  return json as T;
+}
+
+
+// ===== AI endpoints =====
+export type AiGenerateBody = {
+  natural: string;
+  mode: "find" | "aggregate";
+  collection?: string;
+};
+
+export async function aiGenerate(
+  profileId: string,
+  db: string,
+  body: AiGenerateBody
+): Promise<{ query?: any; pipeline?: any }> {
+  const qs = new URLSearchParams({ profile: profileId, db });
+  return apiJson(`/ai/generate?${qs.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function aiRun(
+  profileId: string,
+  db: string,
+  body: { collection: string; query?: any; pipeline?: any; limit?: number }
+): Promise<any[]> {
+  const qs = new URLSearchParams({ profile: profileId, db });
+  return apiJson(`/ai/run?${qs.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
